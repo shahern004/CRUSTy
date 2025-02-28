@@ -74,7 +74,7 @@ Download the latest release for your platform from the [Releases](https://github
 3. Save keys to files for backup
 4. Load keys from files
 
-## C/C++ Integration Architecture
+## TODO: C/C++ Integration Architecture
 
 CRUSTy is designed with a modular architecture that will allow for integration with C/C++ front-ends in the future. This section outlines the planned architecture for such integration.
 
