@@ -4,6 +4,10 @@ CRUSTy is a desktop application built with Rust that provides secure file encryp
 
 ![CRUSTy Application](https://github.com/shahern004/CRUSTy/raw/main/screenshots/crusty_main.png)
 
+## Quick Start
+
+For detailed installation and usage instructions, please see the [Usage Guide](USAGE.md).
+
 ## Features
 
 - **Strong Encryption**: Uses AES-256-GCM for secure, authenticated encryption
@@ -16,69 +20,33 @@ CRUSTy is a desktop application built with Rust that provides secure file encryp
   - Save keys to files for later use
   - Load keys from files
   - Manage multiple keys
+- **Recipient-Specific Encryption**:
+  - Encrypt files for specific recipients using their email address
+  - Derive unique encryption keys from recipient emails
+  - Automatically detect recipient information during decryption
 - **Progress Tracking**: Real-time progress indicators for encryption/decryption operations
 - **Operation Logging**: Detailed logs of all encryption and decryption operations
 - **Error Handling**: Clear error messages and prevention of corrupted output files
 
-## Installation
+## Technical Architecture
 
-### Pre-built Binaries
+### Email-Based Key Derivation
 
-Download the latest release for your platform from the [Releases](https://github.com/shahern004/CRUSTy/releases) page.
+CRUSTy implements a secure method for recipient-specific encryption:
 
-### Building from Source
+1. The user provides a recipient's email address
+2. A cryptographic hash function (SHA-256) is used to derive material from the normalized email
+3. The HKDF (HMAC-based Key Derivation Function) combines this material with the master key
+4. The resulting derived key is used for encryption/decryption
+5. The recipient's email is stored in the encrypted file for reference during decryption
 
-1. Ensure you have Rust and Cargo installed:
-   ```
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   ```
+This approach ensures that files can only be decrypted with both the master key and knowledge of the recipient's email address, adding an additional layer of security.
 
-2. Clone the repository:
-   ```
-   git clone https://github.com/shahern004/CRUSTy.git
-   cd CRUSTy
-   ```
-
-3. Build the application:
-   ```
-   cargo build --release
-   ```
-
-4. Run the application:
-   ```
-   cargo run --release
-   ```
-
-## Usage
-
-### Encrypting Files
-
-1. Select "Single File" or "Multiple Files" mode
-2. Click "Select File(s)" to choose the file(s) you want to encrypt
-3. Select an output directory
-4. Create a new encryption key or select an existing one
-5. Click "Encrypt"
-
-### Decrypting Files
-
-1. Select "Single File" or "Multiple Files" mode
-2. Click "Select File(s)" to choose the encrypted file(s)
-3. Select an output directory
-4. Select the encryption key that was used to encrypt the file(s)
-5. Click "Decrypt"
-
-### Managing Keys
-
-1. Navigate to the "Keys" section
-2. Create new keys with custom names
-3. Save keys to files for backup
-4. Load keys from files
-
-## TODO: C/C++ Integration Architecture
+### TODO: C/C++ Integration Architecture
 
 CRUSTy is designed with a modular architecture that will allow for integration with C/C++ front-ends in the future. This section outlines the planned architecture for such integration.
 
-### Overview
+#### Overview
 
 The integration will follow a layered architecture:
 
@@ -103,15 +71,17 @@ The integration will follow a layered architecture:
 └─────────────────────┘
 ```
 
-### Components
+#### Components
 
 1. **CRUSTy Core (Rust Engine)**
+
    - Contains all encryption/decryption logic
    - Manages keys and cryptographic operations
    - Handles file I/O and progress tracking
    - Implements error handling and logging
 
 2. **CRUSTy C API (FFI Layer)**
+
    - Exposes a C-compatible API using Rust's FFI capabilities
    - Provides simple function calls for all core operations
    - Handles memory management between Rust and C/C++
@@ -123,16 +93,17 @@ The integration will follow a layered architecture:
    - Handles application-specific logic
    - Can be implemented in any C/C++ framework
 
-### Implementation Plan
+#### Implementation Plan
 
-#### 1. Refactoring the Core Engine
+##### 1. Refactoring the Core Engine
 
 The current encryption/decryption functionality will be refactored into a standalone library with:
+
 - Clear separation between core logic and UI
 - Well-defined API boundaries
 - Proper error handling across language boundaries
 
-#### 2. Creating the FFI Layer
+##### 2. Creating the FFI Layer
 
 A new module will be created to expose C-compatible functions:
 
@@ -152,14 +123,15 @@ pub extern "C" fn crusty_encrypt_file(
 }
 ```
 
-#### 3. Building as a Shared Library
+##### 3. Building as a Shared Library
 
 The FFI layer will be compiled into a shared library:
+
 - Windows: `crusty_core.dll`
 - Linux: `libcrusty_core.so`
 - macOS: `libcrusty_core.dylib`
 
-#### 4. C/C++ Header File
+##### 4. C/C++ Header File
 
 A C header file will be provided for C/C++ applications:
 
@@ -189,21 +161,21 @@ int crusty_save_key_to_file(const char* path, const uint8_t* key_data, size_t ke
 // File operations
 typedef void (*progress_callback_t)(float progress);
 
-int crusty_encrypt_file(const char* input_path, const char* output_path, 
+int crusty_encrypt_file(const char* input_path, const char* output_path,
                         const uint8_t* key_data, size_t key_len,
                         progress_callback_t progress_callback);
-                        
-int crusty_decrypt_file(const char* input_path, const char* output_path, 
+
+int crusty_decrypt_file(const char* input_path, const char* output_path,
                         const uint8_t* key_data, size_t key_len,
                         progress_callback_t progress_callback);
 
 // Batch operations
 int crusty_encrypt_files(const char** input_paths, size_t num_files,
-                         const char* output_dir, const uint8_t* key_data, 
+                         const char* output_dir, const uint8_t* key_data,
                          size_t key_len, progress_callback_t progress_callback);
-                         
+
 int crusty_decrypt_files(const char** input_paths, size_t num_files,
-                         const char* output_dir, const uint8_t* key_data, 
+                         const char* output_dir, const uint8_t* key_data,
                          size_t key_len, progress_callback_t progress_callback);
 
 #ifdef __cplusplus
@@ -213,48 +185,7 @@ int crusty_decrypt_files(const char** input_paths, size_t num_files,
 #endif // CRUSTY_H
 ```
 
-### Usage from C/C++
-
-Example of using the library from C++:
-
-```cpp
-#include "crusty.h"
-#include <iostream>
-#include <vector>
-
-// Progress callback function
-void progress_update(float progress) {
-    std::cout << "Progress: " << (progress * 100.0f) << "%" << std::endl;
-}
-
-int main() {
-    // Generate a new key
-    std::vector<uint8_t> key(32); // 256-bit key
-    if (crusty_generate_key(key.data(), key.size()) != CRUSTY_SUCCESS) {
-        std::cerr << "Failed to generate key" << std::endl;
-        return 1;
-    }
-    
-    // Encrypt a file
-    int result = crusty_encrypt_file(
-        "document.pdf",
-        "document.pdf.encrypted",
-        key.data(),
-        key.size(),
-        progress_update
-    );
-    
-    if (result == CRUSTY_SUCCESS) {
-        std::cout << "Encryption successful!" << std::endl;
-    } else {
-        std::cerr << "Encryption failed with error code: " << result << std::endl;
-    }
-    
-    return 0;
-}
-```
-
-### Benefits of This Architecture
+#### Benefits of This Architecture
 
 1. **Language Flexibility**: Allows for front-ends in C, C++, or any language with C FFI support
 2. **Performance**: Maintains the performance benefits of Rust's core encryption engine
@@ -266,6 +197,7 @@ int main() {
 
 - CRUSTy uses AES-256-GCM, a secure authenticated encryption algorithm
 - Each file is encrypted with a unique nonce to prevent replay attacks
+- Email-based key derivation uses HKDF with SHA-256 for secure key generation
 - The application has not been formally audited for security vulnerabilities
 - For highly sensitive data, consider using established encryption tools
 
@@ -275,6 +207,7 @@ int main() {
 - GUI implemented with egui framework
 - Uses the aes-gcm crate for encryption operations
 - Secure random key generation via the rand crate
+- HKDF implementation for email-based key derivation
 - Native file dialogs provided by rfd
 
 ## License
@@ -292,4 +225,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Acknowledgements
 
 - The Rust community for providing excellent libraries and tools
-- The egui framework for making GUI development in Rust accessible 
+- The egui framework for making GUI development in Rust accessible
