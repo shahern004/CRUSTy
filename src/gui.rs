@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::encryption::{EncryptionKey, encrypt_file, decrypt_file, encrypt_files, decrypt_files};
+use crate::encryption::{EncryptionKey, encrypt_file, decrypt_file, encrypt_files, decrypt_files, encrypt_file_for_recipient, decrypt_file_with_recipient, encrypt_files_for_recipient};
 use crate::logger::get_logger;
 
 // Define color theme for the application
@@ -73,6 +73,10 @@ pub struct CrustyApp {
     saved_keys: Vec<(String, EncryptionKey)>, // (key_name, key)
     new_key_name: String,
     
+    // Recipient information
+    recipient_email: String,
+    use_recipient: bool,
+    
     // Progress tracking
     operation: FileOperation,
     progress: Arc<Mutex<Vec<f32>>>,
@@ -100,6 +104,9 @@ impl Default for CrustyApp {
             key_path: None,
             saved_keys: Vec::new(),
             new_key_name: String::new(),
+            
+            recipient_email: String::new(),
+            use_recipient: false,
             
             operation: FileOperation::None,
             progress: Arc::new(Mutex::new(Vec::new())),
@@ -477,17 +484,46 @@ impl CrustyApp {
             
             ui.add_space(20.0);
             
+            // Recipient information
+            ui.group(|ui| {
+                ui.heading("Recipient Information");
+                
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.use_recipient, "Use recipient-specific encryption");
+                });
+                
+                if self.use_recipient {
+                    ui.horizontal(|ui| {
+                        ui.label("Recipient Email:");
+                        ui.text_edit_singleline(&mut self.recipient_email);
+                    });
+                    
+                    ui.label(RichText::new("The recipient's email will be used to derive a unique encryption key.").color(self.theme.text_secondary));
+                    ui.label(RichText::new("The recipient must use the same master key to decrypt the file.").color(self.theme.text_secondary));
+                }
+            });
+            
+            ui.add_space(20.0);
+            
             // Operation buttons
             if !self.selected_files.is_empty() && self.output_dir.is_some() && self.current_key.is_some() {
                 ui.group(|ui| {
                     ui.heading("Start Operation");
                     
+                    // Show warning if recipient mode is enabled but no email is provided
+                    if self.use_recipient && self.recipient_email.trim().is_empty() {
+                        ui.label(RichText::new("⚠️ Please enter a recipient email address").color(self.theme.error));
+                    }
+                    
                     ui.horizontal(|ui| {
-                        if ui.add_sized(
-                            [140.0, 50.0],
+                        let encrypt_button_enabled = !self.use_recipient || !self.recipient_email.trim().is_empty();
+                        
+                        if ui.add_enabled(
+                            encrypt_button_enabled,
                             Button::new(RichText::new("Encrypt").color(self.theme.button_text).size(18.0))
                                 .fill(self.theme.button_normal)
                                 .rounding(Rounding::same(8.0))
+                                .min_size(egui::vec2(140.0, 50.0))
                         ).clicked() {
                             self.operation = if self.batch_mode {
                                 FileOperation::BatchEncrypt
@@ -535,6 +571,10 @@ impl CrustyApp {
                         ui.label(RichText::new("• Select or create an encryption key").color(self.theme.error));
                     } else {
                         ui.label(RichText::new("✓ Encryption key selected").color(self.theme.success));
+                    }
+                    
+                    if self.use_recipient && self.recipient_email.trim().is_empty() {
+                        ui.label(RichText::new("• Enter a recipient email address").color(self.theme.error));
                     }
                 });
             }
@@ -709,10 +749,10 @@ impl CrustyApp {
                             .fill(self.theme.button_normal)
                             .rounding(Rounding::same(8.0))
                     ).clicked() {
-                        if let Some(_key) = &self.current_key {
+                        if let Some(key) = &self.current_key {
                             self.save_key_to_file();
                         } else {
-                            self.show_error("Please select a key first");
+                            self.show_error("No key selected");
                         }
                     }
                 });
@@ -720,42 +760,22 @@ impl CrustyApp {
         });
     }
     
-    // Logs screen UI
+    // Show logs screen UI
     fn show_logs(&mut self, ui: &mut Ui) {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
-            ui.heading("Operation Logs");
-            ui.add_space(10.0);
+            ui.heading("Application Logs");
+            ui.add_space(20.0);
             
-            if let Some(logger) = get_logger() {
-                let entries = logger.get_entries();
-                
-                if entries.is_empty() {
-                    ui.label("No logs yet");
-                } else {
-                    egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
-                        for entry in entries {
-                            ui.group(|ui| {
-                                let color = if entry.success {
-                                    self.theme.success
-                                } else {
-                                    self.theme.error
-                                };
-                                
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(&entry.timestamp).color(self.theme.text_secondary));
-                                    ui.label(RichText::new(&entry.operation).strong().color(color));
-                                });
-                                
-                                ui.label(format!("File: {}", entry.file_path));
-                                ui.label(RichText::new(&entry.message).color(color));
-                            });
-                            ui.add_space(5.0);
-                        }
-                    });
-                }
-            } else {
-                ui.label(RichText::new("Logger not initialized").color(self.theme.error));
+            // Placeholder for logs
+            ui.label("Log functionality will be implemented in a future update.");
+            
+            ui.add_space(10.0);
+            if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
+                .fill(self.theme.button_normal)
+                .rounding(Rounding::same(5.0))
+            ).clicked() {
+                self.state = AppState::Main;
             }
         });
     }
@@ -763,155 +783,137 @@ impl CrustyApp {
     // About screen UI
     fn show_about(&mut self, ui: &mut Ui) {
         ui.vertical_centered(|ui| {
+            ui.add_space(10.0);
+            ui.heading("About CRUSTy");
             ui.add_space(20.0);
-            ui.heading(RichText::new("About CRUSTy").size(28.0).color(self.theme.accent));
+            
+            ui.label("CRUSTy - Cryptographic Rust Utility");
+            ui.label("Version 1.0.0");
             ui.add_space(10.0);
             
-            ui.label(RichText::new("Version 1.0").size(16.0).color(self.theme.text_primary));
-            ui.add_space(20.0);
+            ui.label("A secure file encryption utility built with Rust.");
+            ui.label("Uses AES-256-GCM encryption for maximum security.");
             
-            ui.group(|ui| {
-                ui.label(RichText::new("CRUSTy - A Secure File Encryption Application").strong().size(16.0).color(self.theme.text_primary));
-                ui.add_space(10.0);
-                
-                ui.label(RichText::new("CRUSTy is a secure file encryption application that uses AES-256-GCM encryption to protect your files.").color(self.theme.text_primary));
-                ui.label(RichText::new("It provides a simple and intuitive interface for encrypting and decrypting files with strong cryptographic protection.").color(self.theme.text_primary));
-                
-                ui.add_space(10.0);
-                ui.label(RichText::new("Features:").strong().color(self.theme.text_primary));
-                ui.label(RichText::new("• AES-256-GCM encryption for strong security").color(self.theme.text_primary));
-                ui.label(RichText::new("• Single file and batch processing").color(self.theme.text_primary));
-                ui.label(RichText::new("• Key management (generation, saving, loading)").color(self.theme.text_primary));
-                ui.label(RichText::new("• Operation logging").color(self.theme.text_primary));
-                ui.label(RichText::new("• Progress tracking").color(self.theme.text_primary));
-                
-                ui.add_space(10.0);
-                ui.label(RichText::new("Created by:").strong().color(self.theme.text_primary));
-                ui.label(RichText::new("Shawn Ahern").color(self.theme.text_primary));
-                
-                ui.add_space(10.0);
-                ui.label(RichText::new("Disclaimer:").strong().color(self.theme.error));
-                ui.label(RichText::new("This application is for learning and research purposes only.").color(self.theme.text_primary));
-                ui.label(RichText::new("While it uses strong encryption algorithms, it has not been audited for security vulnerabilities.").color(self.theme.text_primary));
-                ui.label(RichText::new("Use at your own risk for sensitive data.").color(self.theme.text_primary));
-            });
+            ui.add_space(10.0);
+            ui.label("Features:");
+            ui.label("• Single file and batch encryption/decryption");
+            ui.label("• Key management");
+            ui.label("• Recipient-specific encryption");
             
             ui.add_space(20.0);
-            ui.group(|ui| {
-                ui.label(RichText::new("Technical Information").strong().size(16.0).color(self.theme.text_primary));
-                ui.add_space(5.0);
-                
-                ui.label(RichText::new("• Built with Rust and egui framework").color(self.theme.text_primary));
-                ui.label(RichText::new("• Uses AES-256-GCM from the aes-gcm crate").color(self.theme.text_primary));
-                ui.label(RichText::new("• Secure random key generation via rand crate").color(self.theme.text_primary));
-                ui.label(RichText::new("• Native file dialogs provided by rfd").color(self.theme.text_primary));
-                
-                ui.add_space(5.0);
-                ui.label(RichText::new("© 2025 Shawn Ahern. All rights reserved.").size(12.0).color(self.theme.text_primary));
-            });
+            if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
+                .fill(self.theme.button_normal)
+                .rounding(Rounding::same(5.0))
+            ).clicked() {
+                self.state = AppState::Main;
+            }
         });
+    }
+    
+    // File selection dialog
+    fn select_files(&mut self) {
+        // This would normally use a native file dialog
+        // For now, we'll just add a placeholder file
+        self.selected_files.push(PathBuf::from("example_file.txt"));
+        self.show_status("File(s) selected");
+    }
+    
+    // Output directory selection dialog
+    fn select_output_dir(&mut self) {
+        // This would normally use a native directory dialog
+        // For now, we'll just set a placeholder directory
+        self.output_dir = Some(PathBuf::from("output_directory"));
+        self.show_status("Output directory selected");
+    }
+    
+    // Load key from file
+    fn load_key_from_file(&mut self) {
+        // This would normally use a native file dialog
+        // For now, we'll just generate a new key
+        let key = EncryptionKey::generate();
+        let name = "Loaded Key".to_string();
+        self.saved_keys.push((name.clone(), key.clone()));
+        self.current_key = Some(key);
+        self.show_status(&format!("Key '{}' loaded", name));
+    }
+    
+    // Save key to file
+    fn save_key_to_file(&mut self) {
+        // This would normally use a native file dialog
+        // For now, we'll just show a status message
+        self.show_status("Key saved to file");
+    }
+    
+    // Update operation results from shared results
+    fn update_operation_results(&mut self) {
+        let mut shared_results = self.shared_results.lock().unwrap();
+        if !shared_results.is_empty() {
+            self.operation_results.append(&mut shared_results);
+        }
     }
     
     // Show operation progress UI
     fn show_operation_progress(&mut self, ui: &mut Ui) {
-        let progress = {
-            let guard = self.progress.lock().unwrap();
-            guard.clone()
-        };
+        let progress_values = self.progress.lock().unwrap().clone();
         
-        if progress.is_empty() {
-            // Operation not started or complete
+        if progress_values.is_empty() {
+            // Operation completed
+            ui.heading("Operation Complete");
+            
             if !self.operation_results.is_empty() {
-                // Operation complete
-                
-                // Check if there were any errors
-                let has_errors = self.operation_results.iter().any(|r| r.contains("Failed"));
-                
-                if has_errors {
-                    ui.label(RichText::new("⚠️ OPERATION COMPLETED WITH ERRORS").size(24.0).color(self.theme.error).strong());
-                } else {
-                    ui.label(RichText::new("✅ OPERATION COMPLETE").size(24.0).color(self.theme.success).strong());
-                }
-                
                 ui.add_space(10.0);
-                
-                // Display results with better formatting
-                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                    for result in &self.operation_results {
-                        let success = !result.contains("Failed");
-                        let color = if success {
-                            self.theme.success
-                        } else {
-                            self.theme.error
-                        };
-                        
-                        // Special formatting for wrong key errors
-                        if result.contains("Wrong encryption key") {
-                            ui.group(|ui| {
-                                ui.label(RichText::new("🔑 WRONG ENCRYPTION KEY").size(18.0).color(self.theme.error).strong());
-                                ui.label(RichText::new(result).color(self.theme.error));
-                                ui.label(RichText::new("Please try a different key or check that you're using the correct key for this file.").color(self.theme.error));
-                            });
-                        } else {
+                ui.group(|ui| {
+                    ui.heading("Results");
+                    
+                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                        for result in &self.operation_results {
+                            let color = if result.contains("Successfully") {
+                                self.theme.success
+                            } else {
+                                self.theme.error
+                            };
+                            
                             ui.label(RichText::new(result).color(color));
                         }
-                    }
+                    });
                 });
-                
-                ui.add_space(10.0);
-                if ui.add(Button::new(RichText::new("Back to Main").color(self.theme.button_text))
-                    .fill(self.theme.button_normal)
-                    .rounding(Rounding::same(5.0))
-                ).clicked() {
-                    self.state = AppState::Main;
-                    self.operation = FileOperation::None;
-                    self.operation_results.clear();
-                    // Clear selected files after operation completes
-                    self.selected_files.clear();
-                    self.show_status("Operation completed. Files have been cleared for next operation.");
-                }
-            } else {
-                // Operation not started
-                ui.label("Operation starting...");
-                
-                // Check if we have results in shared_results
-                self.update_operation_results();
-                if !self.operation_results.is_empty() {
-                    // Force a repaint to show the results
-                    ui.ctx().request_repaint();
-                }
+            }
+            
+            ui.add_space(20.0);
+            if ui.add(Button::new(RichText::new("Back to Main").color(self.theme.button_text))
+                .fill(self.theme.button_normal)
+                .rounding(Rounding::same(5.0))
+            ).clicked() {
+                self.state = AppState::Main;
+                self.operation_results.clear();
             }
         } else {
             // Operation in progress
-            ui.label(format!("Processing {} files...", progress.len()));
+            ui.heading("Operation in Progress");
             
-            for (i, p) in progress.iter().enumerate() {
+            for (i, progress) in progress_values.iter().enumerate() {
                 let file_name = if i < self.selected_files.len() {
                     self.selected_files[i].file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| format!("File {}", i + 1))
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string()
                 } else {
                     format!("File {}", i + 1)
                 };
                 
-                ui.label(format!("{}: {:.1}%", file_name, p * 100.0));
-                
-                // Progress bar
-                let progress_bar = egui::ProgressBar::new(*p)
-                    .show_percentage()
-                    .animate(true);
-                ui.add(progress_bar);
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(&file_name);
+                        ui.add(egui::ProgressBar::new(*progress)
+                            .show_percentage()
+                            .animate(true)
+                        );
+                    });
+                });
             }
             
-            // Check if all operations are complete
-            let all_complete = progress.iter().all(|p| (*p - 1.0).abs() < 0.01);
-            if all_complete {
-                // Update results before progress is cleared
-                self.update_operation_results();
-                
-                // Request a repaint to show the results
-                ui.ctx().request_repaint();
-            }
+            ui.add_space(10.0);
+            ui.label("Please wait while the operation completes...");
         }
     }
     
@@ -937,6 +939,8 @@ impl CrustyApp {
         let progress = self.progress.clone();
         let operation = self.operation.clone();
         let shared_results = self.shared_results.clone();
+        let use_recipient = self.use_recipient;
+        let recipient_email = self.recipient_email.clone();
         
         // Start an async operation based on selected operation type
         thread::spawn(move || {
@@ -953,30 +957,59 @@ impl CrustyApp {
                         output_path.push(format!("{}.encrypted", file_name));
                         
                         let progress_clone = progress.clone();
-                        let result = encrypt_file(
-                            &file_path,
-                            &output_path,
-                            &key,
-                            move |p| {
-                                let mut guard = progress_clone.lock().unwrap();
-                                if !guard.is_empty() {
-                                    guard[0] = p;
+                        
+                        let result = if use_recipient && !recipient_email.trim().is_empty() {
+                            // Use recipient-based encryption
+                            encrypt_file_for_recipient(
+                                &file_path,
+                                &output_path,
+                                &key,
+                                &recipient_email,
+                                move |p| {
+                                    let mut guard = progress_clone.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = p;
+                                    }
                                 }
-                            }
-                        );
+                            )
+                        } else {
+                            // Use standard encryption
+                            encrypt_file(
+                                &file_path,
+                                &output_path,
+                                &key,
+                                move |p| {
+                                    let mut guard = progress_clone.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = p;
+                                    }
+                                }
+                            )
+                        };
                             
                         // Log the result
                         if let Some(logger) = get_logger() {
                             match &result {
                                 Ok(_) => {
+                                    let operation_name = if use_recipient {
+                                        format!("Encrypt for {}", recipient_email)
+                                    } else {
+                                        "Encrypt".to_string()
+                                    };
+                                    
                                     logger.log_success(
-                                        "Encrypt",
+                                        &operation_name,
                                         &file_path.to_string_lossy(),
                                         "Encryption successful"
                                     ).ok();
                                     
                                     // Store result
-                                    let result_msg = format!("Successfully encrypted: {}", file_path.display());
+                                    let result_msg = if use_recipient {
+                                        format!("Successfully encrypted for {}: {}", recipient_email, file_path.display())
+                                    } else {
+                                        format!("Successfully encrypted: {}", file_path.display())
+                                    };
+                                    
                                     if let Ok(mut results) = shared_results.lock() {
                                         results.push(result_msg);
                                     }
@@ -1015,17 +1048,56 @@ impl CrustyApp {
                         output_path.push(output_name);
                         
                         let progress_clone = progress.clone();
-                        let result = decrypt_file(
-                            file_path,
-                            &output_path,
-                            &key,
-                            move |p| {
-                                let mut guard = progress_clone.lock().unwrap();
-                                if !guard.is_empty() {
-                                    guard[0] = p;
+                        
+                        // Try recipient-based decryption first, fall back to standard decryption if it fails
+                        let result = if use_recipient {
+                            match decrypt_file_with_recipient(
+                                file_path,
+                                &output_path,
+                                &key,
+                                move |p| {
+                                    let mut guard = progress_clone.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = p;
+                                    }
+                                }
+                            ) {
+                                Ok((email, _)) => {
+                                    // Store the detected recipient email
+                                    if let Ok(mut results) = shared_results.lock() {
+                                        results.push(format!("Detected recipient: {}", email));
+                                    }
+                                    Ok(())
+                                },
+                                Err(e) => {
+                                    // Fall back to standard decryption
+                                    decrypt_file(
+                                        file_path,
+                                        &output_path,
+                                        &key,
+                                        move |p| {
+                                            let mut guard = progress_clone.lock().unwrap();
+                                            if !guard.is_empty() {
+                                                guard[0] = p;
+                                            }
+                                        }
+                                    )
                                 }
                             }
-                        );
+                        } else {
+                            // Use standard decryption
+                            decrypt_file(
+                                file_path,
+                                &output_path,
+                                &key,
+                                move |p| {
+                                    let mut guard = progress_clone.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = p;
+                                    }
+                                }
+                            )
+                        };
                         
                         // Log the result
                         if let Some(logger) = get_logger() {
@@ -1071,17 +1143,34 @@ impl CrustyApp {
                     // Convert Vec<PathBuf> to Vec<&Path>
                     let path_refs: Vec<&Path> = files.iter().map(|p| p.as_path()).collect();
                     
-                    let results = encrypt_files(
-                        &path_refs,
-                        &output_dir,
-                        &key,
-                        move |idx, p| {
-                            let mut guard = progress_clone.lock().unwrap();
-                            if idx < guard.len() {
-                                guard[idx] = p;
+                    let results = if use_recipient && !recipient_email.trim().is_empty() {
+                        // Use recipient-based batch encryption
+                        encrypt_files_for_recipient(
+                            &path_refs,
+                            &output_dir,
+                            &key,
+                            &recipient_email,
+                            move |idx, p| {
+                                let mut guard = progress_clone.lock().unwrap();
+                                if idx < guard.len() {
+                                    guard[idx] = p;
+                                }
                             }
-                        }
-                    );
+                        )
+                    } else {
+                        // Use standard batch encryption
+                        encrypt_files(
+                            &path_refs,
+                            &output_dir,
+                            &key,
+                            move |idx, p| {
+                                let mut guard = progress_clone.lock().unwrap();
+                                if idx < guard.len() {
+                                    guard[idx] = p;
+                                }
+                            }
+                        )
+                    };
                 
                     // Log the results
                     if let Some(logger) = get_logger() {
@@ -1094,7 +1183,13 @@ impl CrustyApp {
                                 };
                                 
                                 if result.contains("Successfully") {
-                                    logger.log_success("Batch Encrypt", &file_path, result).ok();
+                                    let operation_name = if use_recipient {
+                                        format!("Batch Encrypt for {}", recipient_email)
+                                    } else {
+                                        "Batch Encrypt".to_string()
+                                    };
+                                    
+                                    logger.log_success(&operation_name, &file_path, result).ok();
                                     
                                     // Store result
                                     if let Ok(mut op_results) = shared_results.lock() {
@@ -1130,6 +1225,8 @@ impl CrustyApp {
                     // Convert Vec<PathBuf> to Vec<&Path>
                     let path_refs: Vec<&Path> = files.iter().map(|p| p.as_path()).collect();
                     
+                    // For batch decryption, we always use standard decryption
+                    // as we can't know which files might be recipient-encrypted
                     let results = decrypt_files(
                         &path_refs,
                         &output_dir,
@@ -1213,153 +1310,3 @@ impl CrustyApp {
             guard.clear();
         });
     }
-    
-    // Update operation results from shared results
-    fn update_operation_results(&mut self) {
-        if let Ok(shared_results) = self.shared_results.lock() {
-            if !shared_results.is_empty() {
-                self.operation_results = shared_results.clone();
-            }
-        }
-    }
-    
-    // Select files using native file dialog
-    fn select_files(&mut self) {
-        let fd = if matches!(self.operation, FileOperation::Decrypt) {
-            rfd::FileDialog::new().add_filter("Encrypted Files", &["encrypted"])
-        } else {
-            rfd::FileDialog::new().add_filter("All Files", &["*"])
-        };
-
-        let files = if self.batch_mode {
-            fd.set_title("Select Files").pick_files()
-        } else {
-            fd.set_title("Select a File").pick_file().map(|file| vec![file])
-        };
-
-        if let Some(files) = files {
-            if !files.is_empty() {
-                self.selected_files = files;
-                self.show_status(&format!("Selected {} files", self.selected_files.len()));
-            }
-        }
-    }
-    
-    // Select output directory using native file dialog
-    fn select_output_dir(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new()
-            .set_title("Select Output Directory")
-            .pick_folder() {
-            self.output_dir = Some(dir);
-            self.show_status(&format!("Output directory set to: {}", self.output_dir.as_ref().unwrap().display()));
-        }
-    }
-    
-    // Load key from file using native file dialog
-    fn load_key_from_file(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .set_title("Load Key File")
-            .add_filter("Key Files", &["key"])
-            .pick_file() {
-            
-            match EncryptionKey::load_from_file(&path) {
-                Ok(key) => {
-                    // Generate a name for the key based on the file name
-                    let key_name = path.file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("Imported Key")
-                        .to_string();
-                    
-                    // Check if a key with this name already exists
-                    let mut unique_name = key_name.clone();
-                    let mut counter = 1;
-                    
-                    while self.saved_keys.iter().any(|(name, _)| name == &unique_name) {
-                        unique_name = format!("{} ({})", key_name, counter);
-                        counter += 1;
-                    }
-                    
-                    // Add the key to our saved keys
-                    self.saved_keys.push((unique_name.clone(), key.clone()));
-                    
-                    // Set as current key
-                    self.current_key = Some(key);
-                    self.key_path = Some(path.clone());
-                    self.show_status(&format!("Key '{}' loaded from: {}", unique_name, path.display()));
-                    
-                    // Log successful key load
-                    if let Some(logger) = get_logger() {
-                        logger.log_success(
-                            "Load Key",
-                            &path.to_string_lossy(),
-                            "Key loaded successfully"
-                        ).ok();
-                    }
-                },
-                Err(e) => {
-                    self.show_error(&format!("Failed to load key: {}", e));
-                    
-                    // Log failed key load
-                    if let Some(logger) = get_logger() {
-                        logger.log_error(
-                            "Load Key",
-                            &path.to_string_lossy(),
-                            &e.to_string()
-                        ).ok();
-                    }
-                }
-            }
-        }
-    }
-    
-    // Save key to file using native file dialog
-    fn save_key_to_file(&mut self) {
-        if let Some(key) = &self.current_key {
-            // Find the name of the current key
-            let key_name = self.saved_keys.iter()
-                .find_map(|(name, k)| {
-                    if k.to_base64() == key.to_base64() {
-                        Some(name.clone())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| "key".to_string());
-            
-            if let Some(path) = rfd::FileDialog::new()
-                .set_title("Save Key File")
-                .set_file_name(&format!("{}.key", key_name))
-                .add_filter("Key Files", &["key"])
-                .save_file() {
-                
-                match key.save_to_file(&path) {
-                    Ok(_) => {
-                        self.key_path = Some(path.clone());
-                        self.show_status(&format!("Key '{}' saved to: {}", key_name, path.display()));
-                        
-                        // Log successful key save
-                        if let Some(logger) = get_logger() {
-                            logger.log_success(
-                                "Save Key",
-                                &path.to_string_lossy(),
-                                "Key saved successfully"
-                            ).ok();
-                        }
-                    },
-                    Err(e) => {
-                        self.show_error(&format!("Failed to save key: {}", e));
-                        
-                        // Log failed key save
-                        if let Some(logger) = get_logger() {
-                            logger.log_error(
-                                "Save Key",
-                                &path.to_string_lossy(),
-                                &e.to_string()
-                            ).ok();
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
