@@ -13,6 +13,15 @@
 mod encryption;
 mod logger;
 mod gui;
+mod backend;
+mod backend_local;
+mod backend_embedded;
+mod start_operation;
+mod split_key;
+mod split_key_gui;
+mod transfer_gui;
+mod gui_impl;
+mod test_transfer;
 
 use eframe::{run_native, NativeOptions};
 use gui::CrustyApp;

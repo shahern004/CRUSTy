@@ -15,6 +15,7 @@ This document provides detailed instructions for installing and using the CRUSTy
   - [Managing Keys](#managing-keys)
 - [Advanced Features](#advanced-features)
   - [Recipient-Specific Encryption](#recipient-specific-encryption)
+  - [Embedded System Integration](#embedded-system-integration)
   - [Batch Processing](#batch-processing)
 - [Troubleshooting](#troubleshooting)
 
@@ -100,6 +101,39 @@ To decrypt a recipient-specific file:
 2. CRUSTy will automatically detect if the file was encrypted for a specific recipient
 3. The recipient's email will be displayed in the results after successful decryption
 
+### Embedded System Integration
+
+CRUSTy supports offloading cryptographic operations to an STM32H5 embedded device for enhanced performance and security:
+
+1. Connect your STM32H573I-DK or compatible device to your computer
+2. In the main screen, check the "Use embedded system for cryptographic operations" box
+3. Select the appropriate connection type (USB, Serial, or Ethernet)
+4. Enter the device ID or address
+5. Add any required connection parameters in the "Advanced Connection Parameters" section
+6. Click "Apply Configuration"
+
+Once configured, all encryption and decryption operations will be performed on the embedded device instead of your computer.
+
+#### Connection Types
+
+- **USB**: Use for direct connection to the STM32H5 device. Enter the device ID (e.g., `VID:PID` format).
+- **Serial/UART**: Use for serial connection. Enter the port name (e.g., `COM3` on Windows, `/dev/ttyUSB0` on Linux).
+- **Ethernet**: Use for network connection. Enter the IP address and port (e.g., `192.168.1.100:8080`).
+
+#### Advanced Parameters
+
+Depending on your connection type, you may need to specify additional parameters:
+
+- For Serial: `baud_rate`, `data_bits`, `parity`, `stop_bits`
+- For USB: `interface`, `endpoint`
+- For Ethernet: `timeout`, `keep_alive`
+
+#### Benefits
+
+- **Performance**: Hardware-accelerated encryption is faster for large files
+- **Security**: Cryptographic operations are isolated from the main system
+- **Power Efficiency**: Reduces CPU load on your computer
+
 ### Batch Processing
 
 For encrypting or decrypting multiple files at once:
@@ -130,6 +164,26 @@ Progress for each file will be displayed during the operation.
 
 - Try a different encryption key
 - If you've lost the key, the file cannot be recovered
+
+**Error: "Embedded backend not implemented"**
+
+- This error occurs when trying to use the embedded backend before it's properly configured
+- Make sure you've clicked "Apply Configuration" after entering the device details
+- Check that your device is properly connected and powered on
+
+**Error: "Failed to connect to embedded device"**
+
+- Verify that the device ID/address is correct
+- Check physical connections (USB cable, network connection, etc.)
+- Ensure the device is powered on and running the CRUSTy firmware
+- Try a different connection type if available
+
+**Error: "Communication error with embedded device"**
+
+- The connection was established but was interrupted during operation
+- Check for loose connections
+- Ensure the device has stable power
+- Try reducing the file size if the operation involves large files
 
 ### Getting Help
 

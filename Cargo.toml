@@ -12,6 +12,11 @@ winapi = { version = "0.3.9", features = ["winuser", "windef", "minwindef", "she
 aes-gcm = "0.10.3"      # AES-GCM encryption
 rand = "0.8.5"          # For secure random number generation
 base64 = "0.21.4"       # For encoding keys to strings
+sharks = "0.5.0"        # Shamir's Secret Sharing implementation
+keyring = "2.0.5"       # OS credential store access
+qrcode = "0.12.0"       # QR code generation
+image = "0.24.7"        # For saving QR codes as images
+data-encoding = "2.4.0" # For encoding/decoding shares
 
 # GUI libraries
 eframe = "0.23.0"       # egui framework for cross-platform GUI
@@ -30,10 +35,10 @@ anyhow = "1.0.75"       # For error propagation
 # Additional utilities
 dirs = "5.0.1"          # For finding user directories
 lazy_static = "1.4.0"   # For static initialization
+hkdf = "0.12.4"
+sha2 = "0.10.8"
+tempfile = "3.8.0"      # For temporary files in tests
 
 # This tells Rust to build a Windows GUI application (no console window)
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
-
-# Remove duplicate winapi dependency
-# winapi = { version = "0.3.9", features = ["winuser", "windef", "minwindef", "shellapi", "combaseapi", "objbase", "shobjidl"] }

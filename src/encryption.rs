@@ -1,4 +1,4 @@
-/// Encryption module for AES-256-GCM file encryption and decryption.
+/// Encryption module for AES-256-GCM file encryption and decryption. 
 /// 
 /// This module provides functionality for:
 /// - Generating and managing encryption keys
@@ -14,133 +14,200 @@ use sha2::{Sha256, Digest};
 use anyhow::Result;
 use rand::RngCore;
 use std::fs::File;
-use std::io::{Read, Write, self, BufReader, BufWriter};
+use std::io::{Read, Write, BufReader};
 use std::path::Path;
 use thiserror::Error;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-/// Custom error types for encryption operations
-#[derive(Error, Debug)]
+/// Error type for encryption operations
+#[derive(Debug, Error)]
 pub enum EncryptionError {
-    /// Errors related to file I/O operations
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
-    
-    /// Errors that occur during encryption
+    /// Error during encryption
     #[error("Encryption error: {0}")]
     Encryption(String),
     
-    /// Errors that occur during decryption
+    /// Error during decryption
     #[error("Decryption error: {0}")]
     Decryption(String),
     
-    /// Errors related to key management
+    /// Error with the encryption key
     #[error("Key error: {0}")]
     KeyError(String),
+    
+    /// I/O error
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
-/// Struct to hold and manage AES-256-GCM encryption keys
+/// Represents an AES-256-GCM encryption key
 #[derive(Clone)]
 pub struct EncryptionKey {
-    key: Key<Aes256Gcm>,
-}
-
-/// Derives cryptographic material from an email address
-fn derive_from_email(email: &str, salt: &[u8]) -> Vec<u8> {
-    let normalized_email = email.trim().to_lowercase();
-    let parts: Vec<&str> = normalized_email.split('@').collect();
-    let username = parts[0];
-    let domain = if parts.len() > 1 { parts[1] } else { "" };
-    
-    let mut hasher = Sha256::new();
-    hasher.update(username.as_bytes());
-    hasher.update(b":");
-    hasher.update(domain.as_bytes());
-    hasher.update(b":");
-    hasher.update(salt);
-    
-    hasher.finalize().to_vec()
+    /// The raw key bytes
+    pub key: [u8; 32],
 }
 
 impl EncryptionKey {
-    /// Create a recipient-specific key by combining the master key with email-derived material
-    pub fn for_recipient(&self, email: &str) -> Result<Self, EncryptionError> {
-        let app_salt = b"CRUSTy-Email-Key-Derivation-Salt-v1";
-        let email_material = derive_from_email(email, app_salt);
-        
-        let hkdf = Hkdf::<Sha256>::new(
-            Some(&email_material),
-            self.key.as_slice()
-        );
-        
-        let mut okm = [0u8; 32];
-        hkdf.expand(b"encryption", &mut okm)
-            .map_err(|_| EncryptionError::KeyError("Key derivation failed".to_string()))?;
-            
-        let derived_key = Key::<Aes256Gcm>::from_slice(&okm);
-        Ok(EncryptionKey { key: *derived_key })
-    }
-    
     /// Generate a new random encryption key
     pub fn generate() -> Self {
-        let key = Aes256Gcm::generate_key(OsRng);
+        let mut key = [0u8; 32];
+        OsRng.fill_bytes(&mut key);
         EncryptionKey { key }
     }
     
-    /// Convert the key to a base64 string for storage
+    /// Convert the key to a Base64 string for storage
     pub fn to_base64(&self) -> String {
-        STANDARD.encode(self.key)
+        STANDARD.encode(&self.key)
     }
     
-    /// Create a key from a base64 string
-    pub fn from_base64(encoded: &str) -> Result<Self, EncryptionError> {
-        let key_bytes = STANDARD.decode(encoded)
-            .map_err(|e| EncryptionError::KeyError(format!("Invalid base64 key: {}", e)))?;
+    /// Create a key from a Base64 string
+    pub fn from_base64(base64: &str) -> Result<Self, EncryptionError> {
+        let key_bytes = STANDARD.decode(base64.as_bytes())
+            .map_err(|e| EncryptionError::KeyError(format!("Invalid Base64 encoding: {}", e)))?;
             
         if key_bytes.len() != 32 {
             return Err(EncryptionError::KeyError(
-                format!("Invalid key length: {}, expected 32", key_bytes.len())
+                format!("Invalid key length: expected 32 bytes, got {}", key_bytes.len())
             ));
         }
         
-        let key = *Key::<Aes256Gcm>::from_slice(&key_bytes);
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&key_bytes);
+        
         Ok(EncryptionKey { key })
     }
     
-    /// Save the key to a file
-    pub fn save_to_file(&self, path: &Path) -> Result<(), EncryptionError> {
-        File::create(path)
-            .map_err(EncryptionError::Io)?
-            .write_all(self.to_base64().as_bytes())
-            .map_err(EncryptionError::Io)
-    }
-    
-    /// Load a key from a file
-    pub fn load_from_file(path: &Path) -> Result<Self, EncryptionError> {
-        let mut contents = String::new();
-        File::open(path)
-            .map_err(EncryptionError::Io)?
-            .read_to_string(&mut contents)
-            .map_err(EncryptionError::Io)?;
+    /// Derive a recipient-specific key using HKDF
+    pub fn for_recipient(&self, recipient_email: &str) -> EncryptionKey {
+        // Normalize the email address
+        let normalized_email = recipient_email.trim().to_lowercase();
+        
+        // Create a salt from the email
+        let mut hasher = Sha256::new();
+        hasher.update(normalized_email.as_bytes());
+        let salt = hasher.finalize();
+        
+        // Derive a new key using HKDF
+        let hkdf = Hkdf::<Sha256>::new(Some(&salt), &self.key);
+        let mut derived_key = [0u8; 32];
+        hkdf.expand(b"CRUSTy-recipient-key", &mut derived_key)
+            .expect("HKDF expansion failed");
             
-        Self::from_base64(&contents)
+        EncryptionKey { key: derived_key }
     }
 }
 
-/// Encrypts a file using AES-256-GCM encryption
-///
-/// # Arguments
-/// * `source_path` - Path to the file to encrypt
-/// * `dest_path` - Path where the encrypted file will be saved
-/// * `key` - The encryption key to use
-/// * `progress_callback` - Callback function that will be called with progress updates (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok(())` if encryption was successful
-/// * `Err(EncryptionError)` if an error occurred
-///
-/// Note: This function uses the provided key directly. For recipient-specific encryption,
-/// use `encrypt_file_for_recipient` instead.
+/// Encrypt raw data using AES-256-GCM
+pub fn encrypt_data(data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
+    // Create the cipher
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key.key));
+    
+    // Generate a random nonce
+    let mut nonce_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    
+    // Encrypt the data
+    let ciphertext = cipher.encrypt(nonce, data)
+        .map_err(|e| EncryptionError::Encryption(format!("Encryption failed: {}", e)))?;
+    
+    // Format: nonce (12 bytes) + ciphertext length (4 bytes) + ciphertext
+    let mut result = Vec::with_capacity(12 + 4 + ciphertext.len());
+    result.extend_from_slice(&nonce_bytes);
+    result.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
+    result.extend_from_slice(&ciphertext);
+    
+    Ok(result)
+}
+
+/// Decrypt raw data using AES-256-GCM
+pub fn decrypt_data(data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
+    if data.len() < 16 {
+        return Err(EncryptionError::Decryption("Data too short".to_string()));
+    }
+    
+    // Extract the nonce
+    let nonce = Nonce::from_slice(&data[0..12]);
+    
+    // Extract the ciphertext length
+    let ciphertext_len = u32::from_be_bytes([data[12], data[13], data[14], data[15]]) as usize;
+    
+    // Verify the data length
+    if data.len() < 16 + ciphertext_len {
+        return Err(EncryptionError::Decryption("Invalid data length".to_string()));
+    }
+    
+    // Extract the ciphertext
+    let ciphertext = &data[16..16 + ciphertext_len];
+    
+    // Create the cipher
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key.key));
+    
+    // Decrypt the data
+    let plaintext = cipher.decrypt(nonce, ciphertext)
+        .map_err(|e| EncryptionError::Decryption(format!("Authentication failed: {}", e)))?;
+    
+    Ok(plaintext)
+}
+
+/// Encrypt raw data for a specific recipient
+pub fn encrypt_data_for_recipient(data: &[u8], master_key: &EncryptionKey, recipient_email: &str) -> Result<Vec<u8>, EncryptionError> {
+    // Derive a recipient-specific key
+    let recipient_key = master_key.for_recipient(recipient_email);
+    
+    // Encrypt the data with the recipient key
+    let encrypted_data = encrypt_data(data, &recipient_key)?;
+    
+    // Format: nonce (12 bytes) + email length (2 bytes) + email + encrypted data
+    let email_bytes = recipient_email.as_bytes();
+    let email_len = email_bytes.len();
+    
+    if email_len > 65535 {
+        return Err(EncryptionError::Encryption("Email address too long".to_string()));
+    }
+    
+    let mut result = Vec::with_capacity(12 + 2 + email_len + encrypted_data.len());
+    result.extend_from_slice(&encrypted_data[0..12]); // Copy the nonce
+    result.extend_from_slice(&(email_len as u16).to_be_bytes());
+    result.extend_from_slice(email_bytes);
+    result.extend_from_slice(&encrypted_data[12..]); // Copy the rest of the encrypted data
+    
+    Ok(result)
+}
+
+/// Decrypt raw data that was encrypted for a specific recipient
+pub fn decrypt_data_with_recipient(data: &[u8], master_key: &EncryptionKey) -> Result<(String, Vec<u8>), EncryptionError> {
+    if data.len() < 14 {
+        return Err(EncryptionError::Decryption("Data too short".to_string()));
+    }
+    
+    // Extract the email length
+    let email_len = u16::from_be_bytes([data[12], data[13]]) as usize;
+    
+    // Verify the data length
+    if data.len() < 14 + email_len {
+        return Err(EncryptionError::Decryption("Invalid data length".to_string()));
+    }
+    
+    // Extract the email
+    let email_bytes = &data[14..14 + email_len];
+    let recipient_email = String::from_utf8(email_bytes.to_vec())
+        .map_err(|e| EncryptionError::Decryption(format!("Invalid email encoding: {}", e)))?;
+    
+    // Derive the recipient-specific key
+    let recipient_key = master_key.for_recipient(&recipient_email);
+    
+    // Reconstruct the encrypted data format
+    let mut encrypted_data = Vec::with_capacity(data.len() - 2 - email_len);
+    encrypted_data.extend_from_slice(&data[0..12]); // Copy the nonce
+    encrypted_data.extend_from_slice(&data[14 + email_len..]); // Skip the email length and email
+    
+    // Decrypt the data
+    let plaintext = decrypt_data(&encrypted_data, &recipient_key)?;
+    
+    Ok((recipient_email, plaintext))
+}
+
+/// Encrypt a file using AES-256-GCM
 pub fn encrypt_file(
     source_path: &Path,
     dest_path: &Path,
@@ -150,98 +217,37 @@ pub fn encrypt_file(
     // Check if the destination file already exists
     if dest_path.exists() {
         return Err(EncryptionError::Io(
-            io::Error::new(io::ErrorKind::AlreadyExists, "Destination file already exists")
+            std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Destination file already exists")
         ));
     }
 
     // Open the source file
-    let source_file = File::open(source_path)
-        .map_err(|e| EncryptionError::Io(e))?;
+    let source_file = File::open(source_path)?;
     
-    // Get file size for progress reporting
-    let file_size = source_file.metadata()
-        .map_err(|e| EncryptionError::Io(e))?
-        .len();
+    // Get file metadata for progress reporting
+    let _file_size = source_file.metadata()?.len();
     
-    let reader = BufReader::new(source_file);
+    let mut reader = BufReader::new(source_file);
     
-    // Create the destination file
-    let dest_file = File::create(dest_path)
-        .map_err(|e| EncryptionError::Io(e))?;
+    // Read the entire file into memory
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
     
-    let mut writer = BufWriter::new(dest_file);
+    // Update progress to indicate file read is complete
+    progress_callback(0.5);
     
-    // Create the cipher instance with our key
-    let cipher = Aes256Gcm::new(&key.key);
+    // Encrypt the data
+    let encrypted_data = encrypt_data(&buffer, key)?;
     
-    // Generate a random nonce (Number used ONCE)
-    let mut nonce_bytes = [0u8; 12]; // AES-GCM uses 12-byte nonces
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    // Write the encrypted data to the destination file
+    let mut dest_file = File::create(dest_path)?;
     
-    // Write the nonce to the beginning of the output file
-    // This is needed for decryption later
-    if let Err(e) = writer.write_all(&nonce_bytes) {
-        // Delete the destination file if there's an error
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    // Process the file in chunks to handle large files
-    const CHUNK_SIZE: usize = 4096;
-    let mut buffer = [0u8; CHUNK_SIZE];
-    let mut bytes_read = 0u64;
-    
-    loop {
-        // Read a chunk from the source file
-        let n = match reader.get_ref().read(&mut buffer) {
-            Ok(n) => n,
-            Err(e) => {
-                // Delete the destination file if there's an error
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Io(e));
-            }
-        };
-            
-        if n == 0 {
-            // End of file
-            break;
-        }
-        
-        // Encrypt the chunk
-        let encrypted_data = match cipher.encrypt(nonce, &buffer[..n]) {
-            Ok(data) => data,
-            Err(e) => {
-                // Delete the destination file if there's an error
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Encryption(e.to_string()));
-            }
-        };
-            
-        // Write the encrypted data
-        if let Err(e) = writer.write_all(&(encrypted_data.len() as u32).to_le_bytes()) {
+    dest_file.write_all(&encrypted_data)
+        .map_err(|e| {
             // Delete the destination file if there's an error
             let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Io(e));
-        }
-            
-        if let Err(e) = writer.write_all(&encrypted_data) {
-            // Delete the destination file if there's an error
-            let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Io(e));
-        }
-            
-        // Update progress
-        bytes_read += n as u64;
-        progress_callback(bytes_read as f32 / file_size as f32);
-    }
-    
-    // Ensure all data is written
-    if let Err(e) = writer.flush() {
-        // Delete the destination file if there's an error
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
+            EncryptionError::Io(e)
+        })?;
     
     // Final progress update
     progress_callback(1.0);
@@ -249,149 +255,7 @@ pub fn encrypt_file(
     Ok(())
 }
 
-/// Encrypts a file for a specific recipient using their email address
-///
-/// # Arguments
-/// * `source_path` - Path to the file to encrypt
-/// * `dest_path` - Path where the encrypted file will be saved
-/// * `master_key` - The master encryption key
-/// * `recipient_email` - Email address of the recipient
-/// * `progress_callback` - Callback function that will be called with progress updates (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok(())` if encryption was successful
-/// * `Err(EncryptionError)` if an error occurred
-pub fn encrypt_file_for_recipient(
-    source_path: &Path,
-    dest_path: &Path,
-    master_key: &EncryptionKey,
-    recipient_email: &str,
-    progress_callback: impl Fn(f32) + Send + 'static,
-) -> Result<(), EncryptionError> {
-    // Check if the destination file already exists
-    if dest_path.exists() {
-        return Err(EncryptionError::Io(
-            io::Error::new(io::ErrorKind::AlreadyExists, "Destination file already exists")
-        ));
-    }
-
-    // Derive recipient-specific key
-    let recipient_key = master_key.for_recipient(recipient_email)?;
-    
-    // Open the source file
-    let source_file = File::open(source_path)
-        .map_err(|e| EncryptionError::Io(e))?;
-    
-    // Get file size for progress reporting
-    let file_size = source_file.metadata()
-        .map_err(|e| EncryptionError::Io(e))?
-        .len();
-    
-    let reader = BufReader::new(source_file);
-    
-    // Create the destination file
-    let dest_file = File::create(dest_path)
-        .map_err(|e| EncryptionError::Io(e))?;
-    
-    let mut writer = BufWriter::new(dest_file);
-    
-    // Create the cipher instance with our key
-    let cipher = Aes256Gcm::new(&recipient_key.key);
-    
-    // Generate a random nonce (Number used ONCE)
-    let mut nonce_bytes = [0u8; 12]; // AES-GCM uses 12-byte nonces
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    
-    // Write the nonce to the beginning of the output file
-    if let Err(e) = writer.write_all(&nonce_bytes) {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    // Write recipient email
-    let email_bytes = recipient_email.as_bytes();
-    if let Err(e) = writer.write_all(&(email_bytes.len() as u16).to_le_bytes()) {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    if let Err(e) = writer.write_all(email_bytes) {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    // Process the file in chunks to handle large files
-    const CHUNK_SIZE: usize = 4096;
-    let mut buffer = [0u8; CHUNK_SIZE];
-    let mut bytes_read = 0u64;
-    
-    loop {
-        // Read a chunk from the source file
-        let n = match reader.get_ref().read(&mut buffer) {
-            Ok(n) => n,
-            Err(e) => {
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Io(e));
-            }
-        };
-            
-        if n == 0 {
-            // End of file
-            break;
-        }
-        
-        // Encrypt the chunk
-        let encrypted_data = match cipher.encrypt(nonce, &buffer[..n]) {
-            Ok(data) => data,
-            Err(e) => {
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Encryption(e.to_string()));
-            }
-        };
-            
-        // Write the encrypted data
-        if let Err(e) = writer.write_all(&(encrypted_data.len() as u32).to_le_bytes()) {
-            let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Io(e));
-        }
-            
-        if let Err(e) = writer.write_all(&encrypted_data) {
-            let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Io(e));
-        }
-            
-        // Update progress
-        bytes_read += n as u64;
-        progress_callback(bytes_read as f32 / file_size as f32);
-    }
-    
-    // Ensure all data is written
-    if let Err(e) = writer.flush() {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    // Final progress update
-    progress_callback(1.0);
-    
-    Ok(())
-}
-
-/// Decrypts a file that was encrypted with AES-256-GCM
-///
-/// # Arguments
-/// * `source_path` - Path to the encrypted file
-/// * `dest_path` - Path where the decrypted file will be saved
-/// * `key` - The encryption key to use (must be the same key used for encryption)
-/// * `progress_callback` - Callback function that will be called with progress updates (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok(())` if decryption was successful
-/// * `Err(EncryptionError)` if an error occurred
-///
-/// Note: This function uses the provided key directly. For recipient-specific decryption,
-/// use `decrypt_file_with_recipient` instead.
+/// Decrypt a file using AES-256-GCM
 pub fn decrypt_file(
     source_path: &Path,
     dest_path: &Path,
@@ -401,120 +265,34 @@ pub fn decrypt_file(
     // Check if the destination file already exists
     if dest_path.exists() {
         return Err(EncryptionError::Io(
-            io::Error::new(io::ErrorKind::AlreadyExists, "Destination file already exists")
+            std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Destination file already exists")
         ));
     }
 
-    // Open the source (encrypted) file
-    let mut source_file = File::open(source_path)
-        .map_err(|e| EncryptionError::Io(e))?;
+    // Open the source file
+    let source_file = File::open(source_path)?;
     
-    // Get file size for progress reporting
-    let file_size = source_file.metadata()
-        .map_err(|e| EncryptionError::Io(e))?
-        .len();
+    let mut reader = BufReader::new(source_file);
     
-    // Create the destination file
-    let dest_file = File::create(dest_path)
-        .map_err(|e| EncryptionError::Io(e))?;
+    // Read the entire file into memory
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
     
-    let mut writer = BufWriter::new(dest_file);
+    // Update progress to indicate file read is complete
+    progress_callback(0.5);
     
-    // Read the nonce from the beginning of the file
-    let mut nonce_bytes = [0u8; 12];
-    let nonce_result = source_file.read_exact(&mut nonce_bytes);
+    // Decrypt the data
+    let decrypted_data = decrypt_data(&buffer, key)?;
     
-    if let Err(e) = nonce_result {
-        // Delete the destination file if there's an error
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
+    // Write the decrypted data to the destination file
+    let mut dest_file = File::create(dest_path)?;
     
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    
-    // Create the cipher instance with our key
-    let cipher = Aes256Gcm::new(&key.key);
-    
-    // Track progress
-    let mut bytes_read = 12u64; // We've read the nonce already
-    
-    // Process the file in chunks
-    loop {
-        // Check if we've reached the end of the file
-        if bytes_read >= file_size {
-            break;
-        }
-        
-        // Read the size of the next encrypted chunk
-        let mut size_bytes = [0u8; 4];
-        match source_file.read_exact(&mut size_bytes) {
-            Ok(_) => {},
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
-            Err(e) => {
-                // Delete the destination file if there's an error
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Io(e));
-            },
-        }
-        
-        bytes_read += 4;
-        let chunk_size = u32::from_le_bytes(size_bytes) as usize;
-        
-        // Read the encrypted chunk
-        let mut encrypted_chunk = vec![0u8; chunk_size];
-        match source_file.read_exact(&mut encrypted_chunk) {
-            Ok(_) => {},
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                // Delete the destination file if there's an error
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Decryption(
-                    "Unexpected end of file".to_string()
-                ));
-            },
-            Err(e) => {
-                // Delete the destination file if there's an error
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Io(e));
-            },
-        }
-        
-        bytes_read += chunk_size as u64;
-        
-        // Decrypt the chunk
-        let decrypted_data = match cipher.decrypt(nonce, encrypted_chunk.as_ref()) {
-            Ok(data) => data,
-            Err(e) => {
-                // Delete the destination file if there's an error
-                let _ = std::fs::remove_file(dest_path);
-                
-                // Provide a more specific error message for authentication failures
-                if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
-                    return Err(EncryptionError::Decryption(
-                        "Authentication failed: The encryption key is incorrect or the file is corrupted".to_string()
-                    ));
-                } else {
-                    return Err(EncryptionError::Decryption(e.to_string()));
-                }
-            }
-        };
-            
-        // Write the decrypted data
-        if let Err(e) = writer.write_all(&decrypted_data) {
+    dest_file.write_all(&decrypted_data)
+        .map_err(|e| {
             // Delete the destination file if there's an error
             let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Io(e));
-        }
-            
-        // Update progress
-        progress_callback(bytes_read as f32 / file_size as f32);
-    }
-    
-    // Ensure all data is written
-    if let Err(e) = writer.flush() {
-        // Delete the destination file if there's an error
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
+            EncryptionError::Io(e)
+        })?;
     
     // Final progress update
     progress_callback(1.0);
@@ -522,328 +300,103 @@ pub fn decrypt_file(
     Ok(())
 }
 
-/// Decrypts a file that was encrypted for a specific recipient
-///
-/// # Arguments
-/// * `source_path` - Path to the encrypted file
-/// * `dest_path` - Path where the decrypted file will be saved
-/// * `master_key` - The master encryption key
-/// * `progress_callback` - Callback function that will be called with progress updates (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok((String, ()))` with the recipient email and success if decryption was successful
-/// * `Err(EncryptionError)` if an error occurred
-pub fn decrypt_file_with_recipient(
-    source_path: &Path,
-    dest_path: &Path,
-    master_key: &EncryptionKey,
-    progress_callback: impl Fn(f32) + Send + 'static,
-) -> Result<(String, ()), EncryptionError> {
-    // Check if the destination file already exists
-    if dest_path.exists() {
-        return Err(EncryptionError::Io(
-            io::Error::new(io::ErrorKind::AlreadyExists, "Destination file already exists")
-        ));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    // Test helper functions
+    fn create_test_file(content: &str) -> NamedTempFile {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file
     }
 
-    // Open the source (encrypted) file
-    let mut source_file = File::open(source_path)
-        .map_err(|e| EncryptionError::Io(e))?;
-    
-    // Get file size for progress reporting
-    let file_size = source_file.metadata()
-        .map_err(|e| EncryptionError::Io(e))?
-        .len();
-    
-    // Create the destination file
-    let dest_file = File::create(dest_path)
-        .map_err(|e| EncryptionError::Io(e))?;
-    
-    let mut writer = BufWriter::new(dest_file);
-    
-    // Read the nonce from the beginning of the file
-    let mut nonce_bytes = [0u8; 12];
-    let nonce_result = source_file.read_exact(&mut nonce_bytes);
-    
-    if let Err(e) = nonce_result {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
+    // Key generation tests
+    #[test]
+    fn test_key_generation() {
+        let key = EncryptionKey::generate();
+        assert_eq!(key.key.len(), 32);
     }
-    
-    // Read the recipient email length
-    let mut email_len_bytes = [0u8; 2];
-    if let Err(e) = source_file.read_exact(&mut email_len_bytes) {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    let email_len = u16::from_le_bytes(email_len_bytes) as usize;
-    
-    // Read the recipient email
-    let mut email_bytes = vec![0u8; email_len];
-    if let Err(e) = source_file.read_exact(&mut email_bytes) {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    let recipient_email = match String::from_utf8(email_bytes) {
-        Ok(email) => email,
-        Err(_) => {
-            let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Decryption("Invalid recipient email encoding".to_string()));
-        }
-    };
-    
-    // Derive the recipient-specific key
-    let recipient_key = master_key.for_recipient(&recipient_email)?;
-    
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    
-    // Create the cipher instance with our key
-    let cipher = Aes256Gcm::new(&recipient_key.key);
-    
-    // Track progress
-    let mut bytes_read = (12 + 2 + email_len) as u64; // We've read the nonce, email length, and email
-    
-    // Process the file in chunks
-    loop {
-        // Check if we've reached the end of the file
-        if bytes_read >= file_size {
-            break;
-        }
-        
-        // Read the size of the next encrypted chunk
-        let mut size_bytes = [0u8; 4];
-        match source_file.read_exact(&mut size_bytes) {
-            Ok(_) => {},
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
-            Err(e) => {
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Io(e));
-            },
-        }
-        
-        bytes_read += 4;
-        let chunk_size = u32::from_le_bytes(size_bytes) as usize;
-        
-        // Read the encrypted chunk
-        let mut encrypted_chunk = vec![0u8; chunk_size];
-        match source_file.read_exact(&mut encrypted_chunk) {
-            Ok(_) => {},
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Decryption(
-                    "Unexpected end of file".to_string()
-                ));
-            },
-            Err(e) => {
-                let _ = std::fs::remove_file(dest_path);
-                return Err(EncryptionError::Io(e));
-            },
-        }
-        
-        bytes_read += chunk_size as u64;
-        
-        // Decrypt the chunk
-        let decrypted_data = match cipher.decrypt(nonce, encrypted_chunk.as_ref()) {
-            Ok(data) => data,
-            Err(e) => {
-                let _ = std::fs::remove_file(dest_path);
-                
-                // Provide a more specific error message for authentication failures
-                if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
-                    return Err(EncryptionError::Decryption(
-                        "Authentication failed: The encryption key is incorrect or the file is corrupted".to_string()
-                    ));
-                } else {
-                    return Err(EncryptionError::Decryption(e.to_string()));
-                }
-            }
-        };
-            
-        // Write the decrypted data
-        if let Err(e) = writer.write_all(&decrypted_data) {
-            let _ = std::fs::remove_file(dest_path);
-            return Err(EncryptionError::Io(e));
-        }
-            
-        // Update progress
-        progress_callback(bytes_read as f32 / file_size as f32);
-    }
-    
-    // Ensure all data is written
-    if let Err(e) = writer.flush() {
-        let _ = std::fs::remove_file(dest_path);
-        return Err(EncryptionError::Io(e));
-    }
-    
-    // Final progress update
-    progress_callback(1.0);
-    
-    Ok((recipient_email, ()))
-}
 
-/// Encrypts multiple files using AES-256-GCM encryption
-///
-/// # Arguments
-/// * `source_paths` - Paths to the files to encrypt
-/// * `dest_dir` - Directory where the encrypted files will be saved
-/// * `key` - The encryption key to use
-/// * `progress_callback` - Callback function that will be called with progress updates
-///   The first parameter is the index of the file being processed
-///   The second parameter is the progress for that file (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok(Vec<String>)` with status messages for each file if successful
-/// * `Err(EncryptionError)` if an error occurred
-pub fn encrypt_files(
-    source_paths: &[&Path],
-    dest_dir: &Path,
-    key: &EncryptionKey,
-    progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
-) -> Result<Vec<String>, EncryptionError> {
-    let mut results = Vec::new();
-    
-    for (i, &source_path) in source_paths.iter().enumerate() {
-        let file_name = source_path.file_name()
-            .ok_or_else(|| EncryptionError::Io(
-                io::Error::new(io::ErrorKind::InvalidInput, "Invalid source path")
-            ))?;
-            
-        let mut dest_path = dest_dir.to_path_buf();
-        dest_path.push(format!("{}.encrypted", file_name.to_string_lossy()));
-        
-        let progress_cb = {
-            let cb = progress_callback.clone();
-            let idx = i;
-            move |p: f32| cb(idx, p)
-        };
-        
-        match encrypt_file(source_path, &dest_path, key, progress_cb) {
-            Ok(_) => results.push(format!("Successfully encrypted: {}", source_path.display())),
-            Err(e) => {
-                // Ensure the destination file is removed if it exists
-                let _ = std::fs::remove_file(&dest_path);
-                results.push(format!("Failed to encrypt {}: {}", source_path.display(), e));
-            },
-        }
+    #[test]
+    fn test_key_serialization() {
+        let key = EncryptionKey::generate();
+        let base64 = key.to_base64();
+        let restored = EncryptionKey::from_base64(&base64).unwrap();
+        assert_eq!(key.key, restored.key);
     }
-    
-    Ok(results)
-}
 
-/// Encrypts multiple files for a specific recipient
-///
-/// # Arguments
-/// * `source_paths` - Paths to the files to encrypt
-/// * `dest_dir` - Directory where the encrypted files will be saved
-/// * `master_key` - The master encryption key
-/// * `recipient_email` - Email address of the recipient
-/// * `progress_callback` - Callback function that will be called with progress updates
-///
-/// # Returns
-/// * `Ok(Vec<String>)` with status messages for each file if successful
-/// * `Err(EncryptionError)` if an error occurred
-pub fn encrypt_files_for_recipient(
-    source_paths: &[&Path],
-    dest_dir: &Path,
-    master_key: &EncryptionKey,
-    recipient_email: &str,
-    progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
-) -> Result<Vec<String>, EncryptionError> {
-    let mut results = Vec::new();
-    
-    for (i, &source_path) in source_paths.iter().enumerate() {
-        let file_name = source_path.file_name()
-            .ok_or_else(|| EncryptionError::Io(
-                io::Error::new(io::ErrorKind::InvalidInput, "Invalid source path")
-            ))?;
-            
-        let mut dest_path = dest_dir.to_path_buf();
-        dest_path.push(format!("{}.encrypted", file_name.to_string_lossy()));
+    // Basic encryption/decryption tests
+    #[test]
+    fn test_encrypt_decrypt_data() {
+        let key = EncryptionKey::generate();
+        let plaintext = b"CRUSTy secret message";
         
-        let progress_cb = {
-            let cb = progress_callback.clone();
-            let idx = i;
-            move |p: f32| cb(idx, p)
-        };
+        let encrypted = encrypt_data(plaintext, &key).unwrap();
+        let decrypted = decrypt_data(&encrypted, &key).unwrap();
         
-        match encrypt_file_for_recipient(source_path, &dest_path, master_key, recipient_email, progress_cb) {
-            Ok(_) => results.push(format!("Successfully encrypted for {}: {}", recipient_email, source_path.display())),
-            Err(e) => {
-                let _ = std::fs::remove_file(&dest_path);
-                results.push(format!("Failed to encrypt {} for {}: {}", source_path.display(), recipient_email, e));
-            },
-        }
+        assert_eq!(plaintext, decrypted.as_slice());
     }
-    
-    Ok(results)
-}
 
-/// Decrypts multiple files that were encrypted with AES-256-GCM
-///
-/// # Arguments
-/// * `source_paths` - Paths to the encrypted files
-/// * `dest_dir` - Directory where the decrypted files will be saved
-/// * `key` - The encryption key to use (must be the same key used for encryption)
-/// * `progress_callback` - Callback function that will be called with progress updates
-///   The first parameter is the index of the file being processed
-///   The second parameter is the progress for that file (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok(Vec<String>)` with status messages for each file if successful
-/// * `Err(EncryptionError)` if an error occurred
-pub fn decrypt_files(
-    source_paths: &[&Path],
-    dest_dir: &Path,
-    key: &EncryptionKey,
-    progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
-) -> Result<Vec<String>, EncryptionError> {
-    let mut results = Vec::new();
-    
-    for (i, &source_path) in source_paths.iter().enumerate() {
-        let file_stem = source_path.file_stem()
-            .ok_or_else(|| EncryptionError::Io(
-                io::Error::new(io::ErrorKind::InvalidInput, "Invalid source path")
-            ))?;
-            
-        let mut dest_path = dest_dir.to_path_buf();
+    #[test]
+    fn test_decrypt_invalid_key() {
+        let key1 = EncryptionKey::generate();
+        let key2 = EncryptionKey::generate();
+        let plaintext = b"CRUSTy secret message";
         
-        // If the file ends with .encrypted, strip it from the output filename
-        let file_name = file_stem.to_string_lossy();
-        let output_name = if file_name.ends_with(".encrypted") {
-            file_name.trim_end_matches(".encrypted").to_string()
-        } else {
-            format!("{}.decrypted", file_name)
-        };
+        let encrypted = encrypt_data(plaintext, &key1).unwrap();
+        let result = decrypt_data(&encrypted, &key2);
         
-        dest_path.push(output_name);
-        
-        let progress_cb = {
-            let cb = progress_callback.clone();
-            let idx = i;
-            move |p: f32| cb(idx, p)
-        };
-        
-        match decrypt_file(source_path, &dest_path, key, progress_cb) {
-            Ok(_) => results.push(format!("Successfully decrypted: {}", source_path.display())),
-            Err(e) => {
-                // Ensure the destination file is removed if it exists
-                let _ = std::fs::remove_file(&dest_path);
-                
-                // Provide a more specific error message for authentication failures
-                let error_msg = if e.to_string().contains("Authentication failed") || 
-                                  e.to_string().contains("authentication") || 
-                                  e.to_string().contains("tag mismatch") {
-                    format!("Failed to decrypt {}: Wrong encryption key used. Please try a different key.", source_path.display())
-                } else {
-                    format!("Failed to decrypt {}: {}", source_path.display(), e)
-                };
-                
-                results.push(error_msg);
-            },
-        }
+        assert!(matches!(result, Err(EncryptionError::Decryption(_)))); 
     }
-    
-    Ok(results)
+
+    // File encryption tests
+    #[test]
+    fn test_file_encryption() {
+        let key = EncryptionKey::generate();
+        let plain_file = create_test_file("Test file contents");
+        let encrypted_file = NamedTempFile::new().unwrap();
+        let decrypted_file = NamedTempFile::new().unwrap();
+
+        encrypt_file(plain_file.path(), encrypted_file.path(), &key, |_| {}).unwrap();
+        decrypt_file(encrypted_file.path(), decrypted_file.path(), &key, |_| {}).unwrap();
+
+        let mut decrypted = String::new();
+        File::open(decrypted_file.path()).unwrap()
+            .read_to_string(&mut decrypted).unwrap();
+            
+        assert_eq!(decrypted, "Test file contents");
+    }
+
+    // Recipient-specific encryption tests
+    #[test]
+    fn test_recipient_encryption() {
+        let master_key = EncryptionKey::generate();
+        let recipient = "test@crusty.com";
+        let plaintext = b"Secret for recipient";
+        
+        let encrypted = encrypt_data_for_recipient(plaintext, &master_key, recipient).unwrap();
+        let (decrypted_recipient, decrypted) = decrypt_data_with_recipient(&encrypted, &master_key).unwrap();
+        
+        assert_eq!(recipient, decrypted_recipient);
+        assert_eq!(plaintext, decrypted.as_slice());
+    }
+
+    // Error condition tests
+    #[test]
+    fn test_invalid_base64_key() {
+        let result = EncryptionKey::from_base64("invalid base64");
+        assert!(matches!(result, Err(EncryptionError::KeyError(_)))); 
+    }
+
+    #[test]
+    fn test_corrupted_ciphertext() {
+        let key = EncryptionKey::generate();
+        let mut corrupted = encrypt_data(b"test", &key).unwrap();
+        corrupted[10] ^= 0xFF; // Flip a bit
+        
+        let result = decrypt_data(&corrupted, &key);
+        assert!(matches!(result, Err(EncryptionError::Decryption(_)))); 
+    }
 }

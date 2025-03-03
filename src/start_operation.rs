@@ -1,27 +1,53 @@
-// Start the selected operation
-    fn start_operation(&mut self) {
+use std::path::{Path, PathBuf};
+use std::thread;
+
+use crate::backend::BackendFactory;
+use crate::gui::CrustyApp;
+use crate::logger::get_logger;
+
+/// Enum for file operations
+#[derive(Clone)]
+pub enum FileOperation {
+    None,
+    Encrypt,
+    Decrypt,
+    BatchEncrypt,
+    BatchDecrypt,
+}
+
+/// Start the selected operation using the appropriate backend
+pub fn start_operation(app: &mut CrustyApp) {
         // Reset the progress and results
         {
-            let mut progress = self.progress.lock().unwrap();
+            let mut progress = app.progress.lock().unwrap();
             progress.clear();
-            progress.resize(self.selected_files.len(), 0.0);
+            progress.resize(app.selected_files.len(), 0.0);
         }
         
         // Clear results
-        self.operation_results.clear();
+        app.operation_results.clear();
         {
-            let mut shared_results = self.shared_results.lock().unwrap();
+            let mut shared_results = app.shared_results.lock().unwrap();
             shared_results.clear();
         }
         
-        let key = self.current_key.clone().unwrap();
-        let files: Vec<PathBuf> = self.selected_files.clone();
-        let output_dir = self.output_dir.clone().unwrap();
-        let progress = self.progress.clone();
-        let operation = self.operation.clone();
-        let shared_results = self.shared_results.clone();
-        let use_recipient = self.use_recipient;
-        let recipient_email = self.recipient_email.clone();
+        let key = app.current_key.clone().unwrap();
+        let files: Vec<PathBuf> = app.selected_files.clone();
+        let output_dir = app.output_dir.clone().unwrap();
+        let progress = app.progress.clone();
+        let operation = app.operation.clone();
+        let shared_results = app.shared_results.clone();
+        let use_recipient = app.use_recipient;
+        let recipient_email = app.recipient_email.clone();
+        
+        // Create the appropriate backend
+        let backend = if app.use_embedded_backend && app.embedded_config.is_some() {
+            // Use embedded backend if configured
+            BackendFactory::create_embedded(app.embedded_config.clone().unwrap())
+        } else {
+            // Use local backend by default
+            BackendFactory::create_local()
+        };
         
         // Start an async operation based on selected operation type
         thread::spawn(move || {
@@ -37,11 +63,10 @@
                         let mut output_path = output_dir.clone();
                         output_path.push(format!("{}.encrypted", file_name));
                         
-                        let progress_clone = progress.clone();
-                        
                         let result = if use_recipient && !recipient_email.trim().is_empty() {
                             // Use recipient-based encryption
-                            encrypt_file_for_recipient(
+                            let progress_clone = progress.clone();
+                            backend.encrypt_file_for_recipient(
                                 &file_path,
                                 &output_path,
                                 &key,
@@ -55,7 +80,8 @@
                             )
                         } else {
                             // Use standard encryption
-                            encrypt_file(
+                            let progress_clone = progress.clone();
+                            backend.encrypt_file(
                                 &file_path,
                                 &output_path,
                                 &key,
@@ -96,14 +122,15 @@
                                     }
                                 },
                                 Err(e) => {
+                                    let error_str = e.to_string();
                                     logger.log_error(
                                         "Encrypt",
                                         &file_path.to_string_lossy(),
-                                        &e.to_string()
+                                        &error_str
                                     ).ok();
                                     
                                     // Store error
-                                    let error_msg = format!("Failed to encrypt {}: {}", file_path.display(), e);
+                                    let error_msg = format!("Failed to encrypt {}: {}", file_path.display(), error_str);
                                     if let Ok(mut results) = shared_results.lock() {
                                         results.push(error_msg);
                                     }
@@ -128,11 +155,10 @@
                         let mut output_path = output_dir.clone();
                         output_path.push(output_name);
                         
-                        let progress_clone = progress.clone();
-                        
                         // Try recipient-based decryption first, fall back to standard decryption if it fails
                         let result = if use_recipient {
-                            match decrypt_file_with_recipient(
+                            let progress_clone = progress.clone();
+                            match backend.decrypt_file_with_recipient(
                                 file_path,
                                 &output_path,
                                 &key,
@@ -150,9 +176,10 @@
                                     }
                                     Ok(())
                                 },
-                                Err(e) => {
+                                Err(_e) => {
                                     // Fall back to standard decryption
-                                    decrypt_file(
+                                    let progress_clone = progress.clone();
+                                    backend.decrypt_file(
                                         file_path,
                                         &output_path,
                                         &key,
@@ -167,7 +194,8 @@
                             }
                         } else {
                             // Use standard decryption
-                            decrypt_file(
+                            let progress_clone = progress.clone();
+                            backend.decrypt_file(
                                 file_path,
                                 &output_path,
                                 &key,
@@ -197,17 +225,18 @@
                                     }
                                 },
                                 Err(e) => {
+                                    let error_str = e.to_string();
                                     logger.log_error(
                                         "Decrypt",
                                         &file_path.to_string_lossy(),
-                                        &e.to_string()
+                                        &error_str
                                     ).ok();
                                     
                                     // Store error with specific message for wrong key
-                                    let error_msg = if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
+                                    let error_msg = if error_str.contains("authentication") || error_str.contains("tag mismatch") {
                                         format!("Failed to decrypt {}: Wrong encryption key used. Please try a different key.", file_path.display())
                                     } else {
-                                        format!("Failed to decrypt {}: {}", file_path.display(), e)
+                                        format!("Failed to decrypt {}: {}", file_path.display(), error_str)
                                     };
                                     
                                     if let Ok(mut results) = shared_results.lock() {
@@ -226,7 +255,7 @@
                     
                     let results = if use_recipient && !recipient_email.trim().is_empty() {
                         // Use recipient-based batch encryption
-                        encrypt_files_for_recipient(
+                        backend.encrypt_files_for_recipient(
                             &path_refs,
                             &output_dir,
                             &key,
@@ -240,7 +269,7 @@
                         )
                     } else {
                         // Use standard batch encryption
-                        encrypt_files(
+                        backend.encrypt_files(
                             &path_refs,
                             &output_dir,
                             &key,
@@ -286,14 +315,15 @@
                                 }
                             }
                         } else if let Err(e) = &results {
+                            let error_str = e.to_string();
                             logger.log_error(
                                 "Batch Encrypt",
                                 "multiple files",
-                                &e.to_string()
+                                &error_str
                             ).ok();
                             
                             // Store error
-                            let error_msg = format!("Batch encryption failed: {}", e);
+                            let error_msg = format!("Batch encryption failed: {}", error_str);
                             if let Ok(mut op_results) = shared_results.lock() {
                                 op_results.push(error_msg);
                             }
@@ -308,7 +338,7 @@
                     
                     // For batch decryption, we always use standard decryption
                     // as we can't know which files might be recipient-encrypted
-                    let results = decrypt_files(
+                    let results = backend.decrypt_files(
                         &path_refs,
                         &output_dir,
                         &key,
@@ -353,17 +383,18 @@
                                 }
                             }
                         } else if let Err(e) = &results {
+                            let error_str = e.to_string();
                             logger.log_error(
                                 "Batch Decrypt",
                                 "multiple files",
-                                &e.to_string()
+                                &error_str
                             ).ok();
                             
                             // Store error with specific message for wrong key
-                            let error_msg = if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
+                            let error_msg = if error_str.contains("authentication") || error_str.contains("tag mismatch") {
                                 format!("Batch decryption failed: Wrong encryption key used. Please try a different key.")
                             } else {
-                                format!("Batch decryption failed: {}", e)
+                                format!("Batch decryption failed: {}", error_str)
                             };
                             
                             if let Ok(mut op_results) = shared_results.lock() {
@@ -390,4 +421,4 @@
             let mut guard = progress.lock().unwrap();
             guard.clear();
         });
-    }
+}

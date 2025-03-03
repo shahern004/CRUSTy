@@ -2,10 +2,15 @@ use eframe::egui;
 use egui::{Ui, Color32, Button, RichText, Stroke, Rounding};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::collections::HashMap;
 
-use crate::encryption::{EncryptionKey, encrypt_file, decrypt_file, encrypt_files, decrypt_files, encrypt_file_for_recipient, decrypt_file_with_recipient, encrypt_files_for_recipient};
+use crate::encryption::EncryptionKey; 
 use crate::logger::get_logger;
+use crate::backend::{EmbeddedConfig, ConnectionType};
+use crate::start_operation::FileOperation;
+use crate::split_key_gui::SplitKeyGui;
+use crate::transfer_gui::{TransferGui, TransferState, TransferReceiveState};
+use crate::split_key::TransferPackage;
 
 // Define color theme for the application
 struct AppTheme {
@@ -39,56 +44,64 @@ impl Default for AppTheme {
 }
 
 // Application state enum for different screens
-enum AppState {
+pub enum AppState {
     Main,
     Encrypting,
     Decrypting,
     KeyManagement,
+    SplitKeyManagement,
+    TransferPreparation,
+    TransferReceive,
     ViewLogs,
     About,
 }
 
-// Enum for file operations
-#[derive(Clone)]
-enum FileOperation {
-    None,
-    Encrypt,
-    Decrypt,
-    BatchEncrypt,
-    BatchDecrypt,
-}
 
 // Application structure
 pub struct CrustyApp {
-    state: AppState,
-    theme: AppTheme,
+    pub state: AppState,
+    pub theme: AppTheme,
     
     // File paths
-    selected_files: Vec<PathBuf>,
-    output_dir: Option<PathBuf>,
+    pub selected_files: Vec<PathBuf>,
+    pub output_dir: Option<PathBuf>,
     
     // Key management
-    current_key: Option<EncryptionKey>,
-    key_path: Option<PathBuf>,
-    saved_keys: Vec<(String, EncryptionKey)>, // (key_name, key)
-    new_key_name: String,
+    pub current_key: Option<EncryptionKey>,
+    pub key_path: Option<PathBuf>,
+    pub saved_keys: Vec<(String, EncryptionKey)>, // (key_name, key)
+    pub new_key_name: String,
     
     // Recipient information
-    recipient_email: String,
-    use_recipient: bool,
+    pub recipient_email: String,
+    pub use_recipient: bool,
     
     // Progress tracking
-    operation: FileOperation,
-    progress: Arc<Mutex<Vec<f32>>>,
-    operation_results: Vec<String>,
-    shared_results: Arc<Mutex<Vec<String>>>, // Shared results for thread communication
+    pub operation: FileOperation,
+    pub progress: Arc<Mutex<Vec<f32>>>,
+    pub operation_results: Vec<String>,
+    pub shared_results: Arc<Mutex<Vec<String>>>, // Shared results for thread communication
     
     // Status and errors
-    status_message: String,
-    error_message: String,
+    pub status_message: String,
+    pub error_message: String,
     
     // Flag for batch operation
-    batch_mode: bool,
+    pub batch_mode: bool,
+    
+    // Embedded backend configuration
+    pub use_embedded_backend: bool,
+    pub embedded_config: Option<EmbeddedConfig>,
+    pub embedded_connection_type: ConnectionType,
+    pub embedded_device_id: String,
+    pub embedded_parameters: HashMap<String, String>,
+    
+    // Transfer functionality
+    pub transfer_package: Option<TransferPackage>,
+    pub transfer_state: TransferState,
+    pub transfer_receive_state: TransferReceiveState,
+    pub transfer_share1: String,
+    pub transfer_share2: String,
 }
 
 impl Default for CrustyApp {
@@ -117,6 +130,18 @@ impl Default for CrustyApp {
             error_message: String::new(),
             
             batch_mode: false,
+            
+            use_embedded_backend: false,
+            embedded_config: None,
+            embedded_connection_type: ConnectionType::Usb,
+            embedded_device_id: String::new(),
+            embedded_parameters: HashMap::new(),
+            
+            transfer_package: None,
+            transfer_state: TransferState::Initial,
+            transfer_receive_state: TransferReceiveState::Initial,
+            transfer_share1: String::new(),
+            transfer_share2: String::new(),
         }
     }
 }
@@ -187,6 +212,9 @@ impl eframe::App for CrustyApp {
                 AppState::Encrypting => self.show_encrypt_screen(ui),
                 AppState::Decrypting => self.show_decrypt_screen(ui),
                 AppState::KeyManagement => self.show_key_management(ui),
+                AppState::SplitKeyManagement => self.show_split_key_management(ui),
+                AppState::TransferPreparation => self.show_transfer_preparation(ui),
+                AppState::TransferReceive => self.show_transfer_receive(ui),
                 AppState::ViewLogs => self.show_logs(ui),
                 AppState::About => self.show_about(ui),
             }
@@ -505,6 +533,111 @@ impl CrustyApp {
             
             ui.add_space(20.0);
             
+            // Embedded backend configuration
+            ui.group(|ui| {
+                ui.heading("Embedded System Integration");
+                
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.use_embedded_backend, "Use embedded system for cryptographic operations");
+                });
+                
+                if self.use_embedded_backend {
+                    ui.add_space(5.0);
+                    
+                    // Connection type selection
+                    ui.horizontal(|ui| {
+                        ui.label("Connection Type:");
+                        ui.radio_value(&mut self.embedded_connection_type, ConnectionType::Usb, "USB");
+                        ui.radio_value(&mut self.embedded_connection_type, ConnectionType::Serial, "Serial/UART");
+                        ui.radio_value(&mut self.embedded_connection_type, ConnectionType::Ethernet, "Ethernet");
+                    });
+                    
+                    // Device ID input
+                    ui.horizontal(|ui| {
+                        ui.label("Device ID/Address:");
+                        ui.text_edit_singleline(&mut self.embedded_device_id);
+                    });
+                    
+                    // Connection parameters
+                    ui.collapsing("Advanced Connection Parameters", |ui| {
+                        // Add/remove parameter fields
+                        let mut param_to_remove = None;
+                        let mut new_param = false;
+                        let mut new_param_name = String::new();
+                        let mut new_param_value = String::new();
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Parameter Name:");
+                            ui.text_edit_singleline(&mut new_param_name);
+                            ui.label("Value:");
+                            ui.text_edit_singleline(&mut new_param_value);
+                            
+                            if ui.button("Add").clicked() && !new_param_name.is_empty() {
+                                new_param = true;
+                            }
+                        });
+                        
+                        if new_param {
+                            self.embedded_parameters.insert(new_param_name.clone(), new_param_value.clone());
+                            new_param_name.clear();
+                            new_param_value.clear();
+                        }
+                        
+                        // Display existing parameters
+                        for (name, value) in &self.embedded_parameters {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{}: {}", name, value));
+                                if ui.button("🗑️").clicked() {
+                                    param_to_remove = Some(name.clone());
+                                }
+                            });
+                        }
+                        
+                        if let Some(param) = param_to_remove {
+                            self.embedded_parameters.remove(&param);
+                        }
+                    });
+                    
+                    ui.add_space(5.0);
+                    
+                    // Connection status and buttons
+                    ui.horizontal(|ui| {
+                        let status_text = if self.embedded_config.is_some() {
+                            RichText::new("✓ Configuration ready").color(self.theme.success)
+                        } else {
+                            RichText::new("⚠️ Not configured").color(self.theme.error)
+                        };
+                        
+                        ui.label(status_text);
+                        
+                        if ui.button("Apply Configuration").clicked() {
+                            // Create the embedded configuration
+                            if !self.embedded_device_id.is_empty() {
+                                self.embedded_config = Some(EmbeddedConfig {
+                                    connection_type: self.embedded_connection_type.clone(),
+                                    device_id: self.embedded_device_id.clone(),
+                                    parameters: self.embedded_parameters.clone(),
+                                });
+                                self.show_status("Embedded backend configuration applied");
+                            } else {
+                                self.show_error("Please enter a device ID/address");
+                            }
+                        }
+                        
+                        if ui.button("Reset").clicked() {
+                            self.embedded_config = None;
+                            self.show_status("Embedded backend configuration reset");
+                        }
+                    });
+                    
+                    ui.add_space(5.0);
+                    ui.label(RichText::new("Note: The embedded system must be properly set up with the CRUSTy C/C++ API.").color(self.theme.text_secondary));
+                    ui.label(RichText::new("Cryptographic operations will be offloaded to the embedded device when enabled.").color(self.theme.text_secondary));
+                }
+            });
+            
+            ui.add_space(20.0);
+            
             // Operation buttons
             if !self.selected_files.is_empty() && self.output_dir.is_some() && self.current_key.is_some() {
                 ui.group(|ui| {
@@ -757,6 +890,52 @@ impl CrustyApp {
                     }
                 });
             });
+            
+            ui.add_space(20.0);
+            
+            // Advanced security section
+            ui.group(|ui| {
+                ui.heading("Advanced Security");
+                
+                ui.label("CRUSTy offers advanced security features for key management and secure transfers.");
+                
+                ui.add_space(10.0);
+                
+                ui.horizontal(|ui| {
+                    if ui.add_sized(
+                        [220.0, 40.0],
+                        Button::new(RichText::new("Split-Key Management").color(self.theme.button_text))
+                            .fill(self.theme.button_normal)
+                            .rounding(Rounding::same(8.0))
+                    ).clicked() {
+                        self.state = AppState::SplitKeyManagement;
+                    }
+                    
+                    if ui.add_sized(
+                        [220.0, 40.0],
+                        Button::new(RichText::new("Prepare for Transfer").color(self.theme.button_text))
+                            .fill(self.theme.button_normal)
+                            .rounding(Rounding::same(8.0))
+                    ).clicked() {
+                        self.state = AppState::TransferPreparation;
+                        self.transfer_state = TransferState::Initial;
+                    }
+                });
+                
+                ui.add_space(5.0);
+                
+                ui.horizontal(|ui| {
+                    if ui.add_sized(
+                        [220.0, 40.0],
+                        Button::new(RichText::new("Receive Transfer").color(self.theme.button_text))
+                            .fill(self.theme.button_normal)
+                            .rounding(Rounding::same(8.0))
+                    ).clicked() {
+                        self.state = AppState::TransferReceive;
+                        self.transfer_receive_state = TransferReceiveState::Initial;
+                    }
+                });
+            });
         });
     }
     
@@ -799,6 +978,13 @@ impl CrustyApp {
             ui.label("• Single file and batch encryption/decryption");
             ui.label("• Key management");
             ui.label("• Recipient-specific encryption");
+            ui.label("• Embedded system integration");
+            
+            ui.add_space(10.0);
+            ui.label("Embedded System Support:");
+            ui.label("CRUSTy can offload cryptographic operations to an STM32H5 embedded device");
+            ui.label("using the C/C++ API. This allows for hardware-accelerated encryption and");
+            ui.label("decryption operations with enhanced security features.");
             
             ui.add_space(20.0);
             if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
@@ -917,396 +1103,7 @@ impl CrustyApp {
         }
     }
     
-    // Start the selected operation
-    fn start_operation(&mut self) {
-        // Reset the progress and results
-        {
-            let mut progress = self.progress.lock().unwrap();
-            progress.clear();
-            progress.resize(self.selected_files.len(), 0.0);
-        }
-        
-        // Clear results
-        self.operation_results.clear();
-        {
-            let mut shared_results = self.shared_results.lock().unwrap();
-            shared_results.clear();
-        }
-        
-        let key = self.current_key.clone().unwrap();
-        let files: Vec<PathBuf> = self.selected_files.clone();
-        let output_dir = self.output_dir.clone().unwrap();
-        let progress = self.progress.clone();
-        let operation = self.operation.clone();
-        let shared_results = self.shared_results.clone();
-        let use_recipient = self.use_recipient;
-        let recipient_email = self.recipient_email.clone();
-        
-        // Start an async operation based on selected operation type
-        thread::spawn(move || {
-            match operation {
-                FileOperation::Encrypt => {
-                    if let Some(file_path) = files.first() {
-                        let file_path = file_path.clone(); // Clone the PathBuf
-                        
-                        let file_name = file_path.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                            
-                        let mut output_path = output_dir.clone();
-                        output_path.push(format!("{}.encrypted", file_name));
-                        
-                        let progress_clone = progress.clone();
-                        
-                        let result = if use_recipient && !recipient_email.trim().is_empty() {
-                            // Use recipient-based encryption
-                            encrypt_file_for_recipient(
-                                &file_path,
-                                &output_path,
-                                &key,
-                                &recipient_email,
-                                move |p| {
-                                    let mut guard = progress_clone.lock().unwrap();
-                                    if !guard.is_empty() {
-                                        guard[0] = p;
-                                    }
-                                }
-                            )
-                        } else {
-                            // Use standard encryption
-                            encrypt_file(
-                                &file_path,
-                                &output_path,
-                                &key,
-                                move |p| {
-                                    let mut guard = progress_clone.lock().unwrap();
-                                    if !guard.is_empty() {
-                                        guard[0] = p;
-                                    }
-                                }
-                            )
-                        };
-                            
-                        // Log the result
-                        if let Some(logger) = get_logger() {
-                            match &result {
-                                Ok(_) => {
-                                    let operation_name = if use_recipient {
-                                        format!("Encrypt for {}", recipient_email)
-                                    } else {
-                                        "Encrypt".to_string()
-                                    };
-                                    
-                                    logger.log_success(
-                                        &operation_name,
-                                        &file_path.to_string_lossy(),
-                                        "Encryption successful"
-                                    ).ok();
-                                    
-                                    // Store result
-                                    let result_msg = if use_recipient {
-                                        format!("Successfully encrypted for {}: {}", recipient_email, file_path.display())
-                                    } else {
-                                        format!("Successfully encrypted: {}", file_path.display())
-                                    };
-                                    
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(result_msg);
-                                    }
-                                },
-                                Err(e) => {
-                                    logger.log_error(
-                                        "Encrypt",
-                                        &file_path.to_string_lossy(),
-                                        &e.to_string()
-                                    ).ok();
-                                    
-                                    // Store error
-                                    let error_msg = format!("Failed to encrypt {}: {}", file_path.display(), e);
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(error_msg);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                FileOperation::Decrypt => {
-                    if let Some(file_path) = files.first() {
-                        let file_name = file_path.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                            
-                        let file_stem = file_name.to_string();
-                        let output_name = if file_stem.ends_with(".encrypted") {
-                            file_stem.trim_end_matches(".encrypted").to_string()
-                        } else {
-                            format!("{}.decrypted", file_stem)
-                        };
-                        
-                        let mut output_path = output_dir.clone();
-                        output_path.push(output_name);
-                        
-                        let progress_clone = progress.clone();
-                        
-                        // Try recipient-based decryption first, fall back to standard decryption if it fails
-                        let result = if use_recipient {
-                            match decrypt_file_with_recipient(
-                                file_path,
-                                &output_path,
-                                &key,
-                                move |p| {
-                                    let mut guard = progress_clone.lock().unwrap();
-                                    if !guard.is_empty() {
-                                        guard[0] = p;
-                                    }
-                                }
-                            ) {
-                                Ok((email, _)) => {
-                                    // Store the detected recipient email
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(format!("Detected recipient: {}", email));
-                                    }
-                                    Ok(())
-                                },
-                                Err(e) => {
-                                    // Fall back to standard decryption
-                                    decrypt_file(
-                                        file_path,
-                                        &output_path,
-                                        &key,
-                                        move |p| {
-                                            let mut guard = progress_clone.lock().unwrap();
-                                            if !guard.is_empty() {
-                                                guard[0] = p;
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        } else {
-                            // Use standard decryption
-                            decrypt_file(
-                                file_path,
-                                &output_path,
-                                &key,
-                                move |p| {
-                                    let mut guard = progress_clone.lock().unwrap();
-                                    if !guard.is_empty() {
-                                        guard[0] = p;
-                                    }
-                                }
-                            )
-                        };
-                        
-                        // Log the result
-                        if let Some(logger) = get_logger() {
-                            match &result {
-                                Ok(_) => {
-                                    logger.log_success(
-                                        "Decrypt",
-                                        &file_path.to_string_lossy(),
-                                        "Decryption successful"
-                                    ).ok();
-                                    
-                                    // Store result
-                                    let result_msg = format!("Successfully decrypted: {}", file_path.display());
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(result_msg);
-                                    }
-                                },
-                                Err(e) => {
-                                    logger.log_error(
-                                        "Decrypt",
-                                        &file_path.to_string_lossy(),
-                                        &e.to_string()
-                                    ).ok();
-                                    
-                                    // Store error with specific message for wrong key
-                                    let error_msg = if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
-                                        format!("Failed to decrypt {}: Wrong encryption key used. Please try a different key.", file_path.display())
-                                    } else {
-                                        format!("Failed to decrypt {}: {}", file_path.display(), e)
-                                    };
-                                    
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(error_msg);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                FileOperation::BatchEncrypt => {
-                    let progress_clone = progress.clone();
-                    
-                    // Convert Vec<PathBuf> to Vec<&Path>
-                    let path_refs: Vec<&Path> = files.iter().map(|p| p.as_path()).collect();
-                    
-                    let results = if use_recipient && !recipient_email.trim().is_empty() {
-                        // Use recipient-based batch encryption
-                        encrypt_files_for_recipient(
-                            &path_refs,
-                            &output_dir,
-                            &key,
-                            &recipient_email,
-                            move |idx, p| {
-                                let mut guard = progress_clone.lock().unwrap();
-                                if idx < guard.len() {
-                                    guard[idx] = p;
-                                }
-                            }
-                        )
-                    } else {
-                        // Use standard batch encryption
-                        encrypt_files(
-                            &path_refs,
-                            &output_dir,
-                            &key,
-                            move |idx, p| {
-                                let mut guard = progress_clone.lock().unwrap();
-                                if idx < guard.len() {
-                                    guard[idx] = p;
-                                }
-                            }
-                        )
-                    };
-                
-                    // Log the results
-                    if let Some(logger) = get_logger() {
-                        if let Ok(results) = &results {
-                            for (i, result) in results.iter().enumerate() {
-                                let file_path = if i < files.len() {
-                                    files[i].to_string_lossy().to_string()
-                                } else {
-                                    "Unknown file".to_string()
-                                };
-                                
-                                if result.contains("Successfully") {
-                                    let operation_name = if use_recipient {
-                                        format!("Batch Encrypt for {}", recipient_email)
-                                    } else {
-                                        "Batch Encrypt".to_string()
-                                    };
-                                    
-                                    logger.log_success(&operation_name, &file_path, result).ok();
-                                    
-                                    // Store result
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(result.clone());
-                                    }
-                                } else {
-                                    logger.log_error("Batch Encrypt", &file_path, result).ok();
-                                    
-                                    // Store error
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(result.clone());
-                                    }
-                                }
-                            }
-                        } else if let Err(e) = &results {
-                            logger.log_error(
-                                "Batch Encrypt",
-                                "multiple files",
-                                &e.to_string()
-                            ).ok();
-                            
-                            // Store error
-                            let error_msg = format!("Batch encryption failed: {}", e);
-                            if let Ok(mut op_results) = shared_results.lock() {
-                                op_results.push(error_msg);
-                            }
-                        }
-                    }
-                },
-                FileOperation::BatchDecrypt => {
-                    let progress_clone = progress.clone();
-                    
-                    // Convert Vec<PathBuf> to Vec<&Path>
-                    let path_refs: Vec<&Path> = files.iter().map(|p| p.as_path()).collect();
-                    
-                    // For batch decryption, we always use standard decryption
-                    // as we can't know which files might be recipient-encrypted
-                    let results = decrypt_files(
-                        &path_refs,
-                        &output_dir,
-                        &key,
-                        move |idx, p| {
-                            let mut guard = progress_clone.lock().unwrap();
-                            if idx < guard.len() {
-                                guard[idx] = p;
-                            }
-                        }
-                    );
-                    
-                    // Log the results
-                    if let Some(logger) = get_logger() {
-                        if let Ok(results) = &results {
-                            for (i, result) in results.iter().enumerate() {
-                                let file_path = if i < files.len() {
-                                    files[i].to_string_lossy().to_string()
-                                } else {
-                                    "Unknown file".to_string()
-                                };
-                                
-                                if result.contains("Successfully") {
-                                    logger.log_success("Batch Decrypt", &file_path, result).ok();
-                                    
-                                    // Store result
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(result.clone());
-                                    }
-                                } else {
-                                    logger.log_error("Batch Decrypt", &file_path, result).ok();
-                                    
-                                    // Store error with specific message for wrong key
-                                    let error_msg = if result.contains("authentication") || result.contains("tag mismatch") {
-                                        format!("Failed to decrypt {}: Wrong encryption key used. Please try a different key.", file_path)
-                                    } else {
-                                        result.clone()
-                                    };
-                                    
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(error_msg);
-                                    }
-                                }
-                            }
-                        } else if let Err(e) = &results {
-                            logger.log_error(
-                                "Batch Decrypt",
-                                "multiple files",
-                                &e.to_string()
-                            ).ok();
-                            
-                            // Store error with specific message for wrong key
-                            let error_msg = if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
-                                format!("Batch decryption failed: Wrong encryption key used. Please try a different key.")
-                            } else {
-                                format!("Batch decryption failed: {}", e)
-                            };
-                            
-                            if let Ok(mut op_results) = shared_results.lock() {
-                                op_results.push(error_msg);
-                            }
-                        }
-                    }
-                },
-                _ => {}
-            }
-            
-            // Set all progress values to 1.0 to indicate completion
-            {
-                let mut guard = progress.lock().unwrap();
-                for p in guard.iter_mut() {
-                    *p = 1.0;
-                }
-            }
-            
-            // Wait a moment before clearing progress
-            thread::sleep(std::time::Duration::from_millis(1500));
-            
-            // Clear the progress to signal completion
-            let mut guard = progress.lock().unwrap();
-            guard.clear();
-        });
+    // Call the start_operation function from start_operation.rs
+    pub fn start_operation(&mut self) {
+        crate::start_operation::start_operation(self);
     }
