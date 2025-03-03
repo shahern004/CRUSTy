@@ -1,5 +1,18 @@
 # CRUSTy Embedded Systems Integration
 
+**Version: 0.5.0**  
+**Last Updated: 2025-03-03**
+
+## Changelog
+
+### v0.5.0 (2025-03-03)
+
+- Initial documentation of embedded systems architecture
+- Defined communication protocol and command set
+- Added implementation roadmap
+- Added sequence and architecture diagrams
+- Documented placeholder status of current implementation
+
 This document provides technical details on the embedded systems integration for CRUSTy, focusing on the STM32H5 series microcontrollers with hardware cryptographic acceleration.
 
 ## Current Implementation Status
@@ -95,6 +108,23 @@ impl EmbeddedBackend {
 ## Communication Protocol
 
 The communication between the CRUSTy application and the STM32H5 device follows a custom binary protocol:
+
+### Command Protocol Sequence
+
+```mermaid
+sequenceDiagram
+    participant App as CRUSTy App
+    participant Backend as Embedded Backend
+    participant Device as STM32H5 Device
+
+    App->>Backend: encrypt_data(data, key)
+    Backend->>Device: CMD_ENCRYPT
+    Note over Backend,Device: [CMD_ID][LEN][KEY][NONCE][DATA][CRC]
+    Device->>Device: Process with HW accelerator
+    Device-->>Backend: STATUS_SUCCESS + result
+    Note over Device,Backend: [STATUS][LEN][ENCRYPTED_DATA][CRC]
+    Backend-->>App: Return encrypted data
+```
 
 ### Command Format
 

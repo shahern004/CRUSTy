@@ -1,5 +1,18 @@
 # CRUSTy Training Guide for Security Engineers
 
+**Version: 1.0.0**  
+**Last Updated: 2025-03-03**
+
+## Changelog
+
+### v1.0.0 (2025-03-03)
+
+- Initial documented version
+- Added comprehensive explanation of encryption functionality
+- Added details on recipient-specific encryption
+- Added backend abstraction layer documentation
+- Added sequence and flow diagrams for key processes
+
 ## Introduction
 
 Welcome to CRUSTy, a secure file encryption application built with Rust. This guide provides explanations of CRUSTy's functionality, alternating between technical details and simplified descriptions to help you understand both the implementation details and practical usage.
@@ -141,6 +154,28 @@ pub fn decrypt_data(data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, Encrypt
 
 The implementation uses AES-256-GCM, which provides both confidentiality and authentication. Each encryption operation uses a unique nonce (number used once) generated with a cryptographically secure random number generator. The encrypted output includes the nonce, the length of the encrypted data, and the encrypted data itself with its authentication tag. During decryption, the authentication tag is verified to ensure the data hasn't been tampered with.
 
+**Encryption/Decryption Process**
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant GUI
+    participant Backend
+    participant Cipher
+
+    User->>GUI: Select file & key
+    User->>GUI: Click "Encrypt"
+    GUI->>Backend: encrypt_file(path, key)
+    Backend->>Backend: Read file
+    Backend->>Cipher: encrypt_data(data, key)
+    Cipher->>Cipher: Generate nonce
+    Cipher->>Cipher: AES-GCM encryption
+    Cipher-->>Backend: Return encrypted data
+    Backend->>Backend: Write to output file
+    Backend-->>GUI: Return success/error
+    GUI-->>User: Display result
+```
+
 **Practical Usage**
 
 To encrypt and decrypt files with CRUSTy:
@@ -252,6 +287,18 @@ pub fn encrypt_data_for_recipient(
 
 The recipient-specific encryption uses HKDF (HMAC-based Key Derivation Function) with SHA-256 to derive a unique encryption key from the master key and the recipient's normalized email address. The email is normalized by trimming whitespace and converting to lowercase to ensure consistent key derivation. The encrypted output includes the nonce, the recipient's email address, and the encrypted data with its authentication tag.
 
+**Key Derivation Flow**
+
+```mermaid
+flowchart TD
+    A[Master Key] --> B[HKDF with Email]
+    C[Recipient Email] --> D[Normalize Email]
+    D --> E[SHA-256 Hash]
+    E --> B
+    B --> F[Recipient-Specific Key]
+    F --> G[AES-GCM Encryption]
+```
+
 **Practical Usage**
 
 To use recipient-specific encryption in CRUSTy:
@@ -344,6 +391,23 @@ let backend = if self.use_embedded_backend && self.embedded_config.is_some() {
 ```
 
 The backend abstraction uses Rust's trait system to define a common interface for all encryption backends. This allows the application to seamlessly switch between local (software-based) encryption and hardware-accelerated encryption via embedded devices. The `BackendFactory` provides a factory pattern for creating the appropriate backend based on the user's configuration.
+
+**Embedded System Architecture**
+
+```mermaid
+flowchart TD
+    A[CRUSTy Application] --> B[Backend Abstraction Layer]
+    B --> C[Local Backend]
+    B --> D[Embedded Backend]
+    D --> E[Transport Layer]
+    E --> F[USB Connection]
+    E --> G[Serial Connection]
+    E --> H[Ethernet Connection]
+    F --> I[STM32H5 Device]
+    G --> I
+    H --> I
+    I --> J[Hardware Crypto Accelerators]
+```
 
 **Practical Usage**
 
@@ -645,6 +709,27 @@ The batch processing implementation handles multiple files in a single operation
 
 **Practical Usage**
 
+**User Workflow**
+
+```mermaid
+flowchart TD
+    A[Start CRUSTy] --> B{Choose Operation}
+    B -->|Encrypt| C[Select File(s)]
+    B -->|Decrypt| D[Select Encrypted File(s)]
+    C --> E[Select Output Directory]
+    D --> F[Select Output Directory]
+    E --> G[Select/Create Key]
+    F --> H[Select Key]
+    G --> I{Recipient-Specific?}
+    I -->|Yes| J[Enter Email]
+    I -->|No| K[Standard Encryption]
+    J --> L[Click Encrypt]
+    K --> L
+    H --> M[Click Decrypt]
+    L --> N[View Results]
+    M --> N
+```
+
 To process multiple files at once with CRUSTy:
 
 1. **Select "Multiple Files" Mode**:
@@ -677,6 +762,121 @@ To process multiple files at once with CRUSTy:
    - Results for each file will be displayed when complete
 
 Batch processing is particularly useful when you need to encrypt or decrypt many files at once, saving time and effort compared to processing files individually.
+
+## Split Key Functionality
+
+CRUSTy implements Shamir's Secret Sharing for splitting encryption keys into multiple shares, enhancing security through multi-party authorization.
+
+**Split Key Sequence**
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KeyManager
+    participant SplitKey
+    participant Storage
+
+    User->>KeyManager: Split key(threshold, shares)
+    KeyManager->>SplitKey: new(key, threshold, shares)
+    SplitKey->>SplitKey: Generate shares using Shamir's SS
+    SplitKey-->>KeyManager: Return split key
+    KeyManager->>Storage: Store primary share
+    KeyManager->>Storage: Save secondary share
+    KeyManager->>Storage: Save recovery share
+    KeyManager-->>User: Confirm shares created
+```
+
+**Key Management Workflow**
+
+```mermaid
+flowchart TD
+    A[Open Key Management] --> B{Choose Action}
+    B -->|Create| C[Generate New Key]
+    B -->|Import| D[Load Key from File]
+    B -->|Split| E[Split Key into Shares]
+    C --> F[Name and Save Key]
+    D --> F
+    E --> G[Set Threshold and Shares]
+    G --> H[Store Primary Share]
+    H --> I[Save Secondary Share]
+    I --> J[Create Recovery Share]
+    F --> K[Use Key for Operations]
+    J --> K
+```
+
+### Technical Implementation
+
+The split key functionality is implemented through the `SplitEncryptionKey` struct and related components:
+
+```rust
+pub struct SplitEncryptionKey {
+    threshold: u8,
+    shares_count: u8,
+    shares: Vec<Share>,
+    key: Option<EncryptionKey>,
+    purpose: KeyPurpose,
+}
+
+impl SplitEncryptionKey {
+    pub fn new(key: &EncryptionKey, threshold: u8, shares_count: u8, purpose: KeyPurpose) -> Result<Self, SplitKeyError> {
+        // Validate threshold and shares count
+        if threshold < 2 {
+            return Err(SplitKeyError::Sharing("Threshold must be at least 2".to_string()));
+        }
+
+        if shares_count < threshold {
+            return Err(SplitKeyError::Sharing("Shares count must be at least equal to threshold".to_string()));
+        }
+
+        // Get the key as bytes
+        let key_bytes = key.to_base64().into_bytes();
+
+        // Create the Shamir's Secret Sharing scheme
+        let sharks = Sharks(threshold);
+
+        // Split the key into shares
+        let dealer = sharks.dealer(&key_bytes);
+        let shares: Vec<Share> = dealer.take(shares_count as usize).collect();
+
+        Ok(SplitEncryptionKey {
+            threshold,
+            shares_count,
+            shares,
+            key: Some(key.clone()),
+            purpose,
+        })
+    }
+
+    // Additional methods for share management...
+}
+```
+
+### Practical Usage
+
+To use the split key functionality in CRUSTy:
+
+1. **Creating Split Keys**:
+
+   - Navigate to the key management section
+   - Select a key to split
+   - Choose the threshold (minimum shares needed for reconstruction)
+   - Choose the total number of shares to create
+   - Click "Split Key"
+
+2. **Storing Shares**:
+
+   - The primary share is automatically stored in your system's secure credential store
+   - Save the secondary share to a file on a different device or storage medium
+   - Create a recovery share as a mnemonic phrase or QR code for emergency backup
+
+3. **Reconstructing Keys**:
+   - To reconstruct a key, you need at least the threshold number of shares
+   - The primary share is retrieved from the credential store
+   - Load the secondary share from its file
+   - If needed, input the recovery share from the mnemonic phrase or QR code
+   - The key is reconstructed only if the correct shares are provided
+
+This approach enhances security by ensuring that no single point of compromise can expose the encryption key.
 
 ## Security Considerations
 
@@ -719,6 +919,22 @@ When using CRUSTy, keep these security considerations in mind:
 7. **Key Rotation**: Consider periodically generating new keys for sensitive data, especially if you suspect a key might have been compromised.
 
 Remember that encryption is just one part of a comprehensive security strategy. Maintain good security practices in all aspects of your digital life, including strong passwords, system updates, and malware protection.
+
+**Troubleshooting Decision Tree**
+
+```mermaid
+flowchart TD
+    A[Error Encountered] --> B{Error Type}
+    B -->|Authentication Failed| C[Check Key]
+    B -->|Destination Exists| D[Change Output Path]
+    B -->|Embedded Backend| E[Check Device Connection]
+    C -->|Wrong Key| F[Try Different Key]
+    C -->|Correct Key| G[Check File Integrity]
+    E -->|Not Connected| H[Verify Device ID]
+    E -->|Connected| I[Check Device Power]
+    H --> J[Try Different Connection Type]
+    I --> K[Reduce File Size]
+```
 
 ## Troubleshooting
 

@@ -1,5 +1,18 @@
 # CRUSTy - Usage Guide
 
+**Version: 1.0.0**  
+**Last Updated: 2025-03-03**
+
+## Changelog
+
+### v1.0.0 (2025-03-03)
+
+- Initial documented version
+- Added comprehensive usage instructions
+- Added details on recipient-specific encryption
+- Added embedded system integration usage
+- Added workflow and troubleshooting diagrams
+
 This document provides detailed instructions for installing and using the CRUSTy file encryption application.
 
 ![CRUSTy Application](https://github.com/shahern004/CRUSTy/raw/main/screenshots/crusty_main.png)
@@ -53,6 +66,27 @@ Download the latest release for your platform from the [Releases](https://github
 
 ## Basic Usage
 
+**User Workflow**
+
+```mermaid
+flowchart TD
+    A[Start CRUSTy] --> B{Choose Operation}
+    B -->|Encrypt| C[Select File(s)]
+    B -->|Decrypt| D[Select Encrypted File(s)]
+    C --> E[Select Output Directory]
+    D --> F[Select Output Directory]
+    E --> G[Select/Create Key]
+    F --> H[Select Key]
+    G --> I{Recipient-Specific?}
+    I -->|Yes| J[Enter Email]
+    I -->|No| K[Standard Encryption]
+    J --> L[Click Encrypt]
+    K --> L
+    H --> M[Click Decrypt]
+    L --> N[View Results]
+    M --> N
+```
+
 ### Encrypting Files
 
 1. Select "Single File" or "Multiple Files" mode
@@ -70,6 +104,24 @@ Download the latest release for your platform from the [Releases](https://github
 5. Click "Decrypt"
 
 ### Managing Keys
+
+**Key Management Workflow**
+
+```mermaid
+flowchart TD
+    A[Open Key Management] --> B{Choose Action}
+    B -->|Create| C[Generate New Key]
+    B -->|Import| D[Load Key from File]
+    B -->|Split| E[Split Key into Shares]
+    C --> F[Name and Save Key]
+    D --> F
+    E --> G[Set Threshold and Shares]
+    G --> H[Store Primary Share]
+    H --> I[Save Secondary Share]
+    I --> J[Create Recovery Share]
+    F --> K[Use Key for Operations]
+    J --> K
+```
 
 1. Navigate to the "Keys" section by clicking the "🔑 Keys" button
 2. Create new keys with custom names
@@ -146,7 +198,49 @@ For encrypting or decrypting multiple files at once:
 
 Progress for each file will be displayed during the operation.
 
+## Split Key Functionality
+
+CRUSTy supports splitting encryption keys into multiple shares using Shamir's Secret Sharing, enhancing security through multi-party authorization:
+
+1. **Creating Split Keys**:
+
+   - In the key management section, select a key to split
+   - Choose the threshold (minimum shares needed for reconstruction)
+   - Choose the total number of shares to create
+   - Click "Split Key"
+
+2. **Storing Shares**:
+
+   - The primary share is automatically stored in your system's secure credential store
+   - Save the secondary share to a file on a different device or storage medium
+   - Create a recovery share as a mnemonic phrase or QR code for emergency backup
+
+3. **Reconstructing Keys**:
+   - To reconstruct a key, you need at least the threshold number of shares
+   - The primary share is retrieved from the credential store
+   - Load the secondary share from its file
+   - If needed, input the recovery share from the mnemonic phrase or QR code
+   - The key is reconstructed only if the correct shares are provided
+
+This approach enhances security by ensuring that no single point of compromise can expose the encryption key.
+
 ## Troubleshooting
+
+**Troubleshooting Decision Tree**
+
+```mermaid
+flowchart TD
+    A[Error Encountered] --> B{Error Type}
+    B -->|Authentication Failed| C[Check Key]
+    B -->|Destination Exists| D[Change Output Path]
+    B -->|Embedded Backend| E[Check Device Connection]
+    C -->|Wrong Key| F[Try Different Key]
+    C -->|Correct Key| G[Check File Integrity]
+    E -->|Not Connected| H[Verify Device ID]
+    E -->|Connected| I[Check Device Power]
+    H --> J[Try Different Connection Type]
+    I --> K[Reduce File Size]
+```
 
 ### Common Issues
 
