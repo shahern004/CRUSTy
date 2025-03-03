@@ -1,5 +1,5 @@
 use crate::encryption::EncryptionKey;
-use crate::split_key::{SplitEncryptionKey, KeyShareManager, TransferPackage, ShareFormat, KeyPurpose, SplitKeyError};
+use crate::split_key::{KeyShareManager, SplitKeyError};
 use std::path::PathBuf;
 
 /// Test the transfer functionality

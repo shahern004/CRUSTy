@@ -1,8 +1,7 @@
 /// Embedded device implementation of the encryption backend.
 use std::path::Path;
-use std::collections::HashMap;
 
-use crate::backend::{EncryptionBackend, EmbeddedBackend, EmbeddedConfig, ConnectionType};
+use crate::backend::{EncryptionBackend, EmbeddedBackend};
 use crate::encryption::{EncryptionKey, EncryptionError};
 
 impl EmbeddedBackend {
@@ -32,7 +31,7 @@ impl EmbeddedBackend {
 }
 
 impl EncryptionBackend for EmbeddedBackend {
-    fn encrypt_data(&self, data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
+    fn encrypt_data(&self, _data: &[u8], _key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device encryption logic when the embedded system integration is implemented.
         
@@ -40,7 +39,7 @@ impl EncryptionBackend for EmbeddedBackend {
         Err(EncryptionError::Encryption("Embedded backend not implemented".to_string()))
     }
     
-    fn decrypt_data(&self, data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
+    fn decrypt_data(&self, _data: &[u8], _key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device decryption logic when the embedded system integration is implemented.
         
@@ -50,9 +49,9 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn encrypt_data_for_recipient(
         &self, 
-        data: &[u8], 
-        master_key: &EncryptionKey, 
-        recipient_email: &str
+        _data: &[u8],
+        _master_key: &EncryptionKey,
+        _recipient_email: &str
     ) -> Result<Vec<u8>, EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device encryption logic when the embedded system integration is implemented.
@@ -63,8 +62,8 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn decrypt_data_with_recipient(
         &self, 
-        data: &[u8], 
-        master_key: &EncryptionKey
+        _data: &[u8],
+        _master_key: &EncryptionKey
     ) -> Result<(String, Vec<u8>), EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device decryption logic when the embedded system integration is implemented.
@@ -75,10 +74,10 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn encrypt_file(
         &self,
-        source_path: &Path,
-        dest_path: &Path,
-        key: &EncryptionKey,
-        progress_callback: impl Fn(f32) + Send + 'static,
+        _source_path: &Path,
+        _dest_path: &Path,
+        _key: &EncryptionKey,
+        _progress_callback: impl Fn(f32) + Send + 'static,
     ) -> Result<(), EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device encryption logic when the embedded system integration is implemented.
@@ -89,10 +88,10 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn decrypt_file(
         &self,
-        source_path: &Path,
-        dest_path: &Path,
-        key: &EncryptionKey,
-        progress_callback: impl Fn(f32) + Send + 'static,
+        _source_path: &Path,
+        _dest_path: &Path,
+        _key: &EncryptionKey,
+        _progress_callback: impl Fn(f32) + Send + 'static,
     ) -> Result<(), EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device decryption logic when the embedded system integration is implemented.
@@ -103,11 +102,11 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn encrypt_file_for_recipient(
         &self,
-        source_path: &Path,
-        dest_path: &Path,
-        master_key: &EncryptionKey,
-        recipient_email: &str,
-        progress_callback: impl Fn(f32) + Send + 'static,
+        _source_path: &Path,
+        _dest_path: &Path,
+        _master_key: &EncryptionKey,
+        _recipient_email: &str,
+        _progress_callback: impl Fn(f32) + Send + 'static,
     ) -> Result<(), EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device encryption logic when the embedded system integration is implemented.
@@ -118,10 +117,10 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn decrypt_file_with_recipient(
         &self,
-        source_path: &Path,
-        dest_path: &Path,
-        master_key: &EncryptionKey,
-        progress_callback: impl Fn(f32) + Send + 'static,
+        _source_path: &Path,
+        _dest_path: &Path,
+        _master_key: &EncryptionKey,
+        _progress_callback: impl Fn(f32) + Send + 'static,
     ) -> Result<(String, ()), EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device decryption logic when the embedded system integration is implemented.
@@ -132,10 +131,10 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn encrypt_files(
         &self,
-        source_paths: &[&Path],
-        dest_dir: &Path,
-        key: &EncryptionKey,
-        progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
+        _source_paths: &[&Path],
+        _dest_dir: &Path,
+        _key: &EncryptionKey,
+        _progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
     ) -> Result<Vec<String>, EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device encryption logic when the embedded system integration is implemented.
@@ -146,10 +145,10 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn decrypt_files(
         &self,
-        source_paths: &[&Path],
-        dest_dir: &Path,
-        key: &EncryptionKey,
-        progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
+        _source_paths: &[&Path],
+        _dest_dir: &Path,
+        _key: &EncryptionKey,
+        _progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
     ) -> Result<Vec<String>, EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device decryption logic when the embedded system integration is implemented.
@@ -160,11 +159,11 @@ impl EncryptionBackend for EmbeddedBackend {
     
     fn encrypt_files_for_recipient(
         &self,
-        source_paths: &[&Path],
-        dest_dir: &Path,
-        master_key: &EncryptionKey,
-        recipient_email: &str,
-        progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
+        _source_paths: &[&Path],
+        _dest_dir: &Path,
+        _master_key: &EncryptionKey,
+        _recipient_email: &str,
+        _progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
     ) -> Result<Vec<String>, EncryptionError> {
         // This is a placeholder implementation that will be replaced with actual
         // embedded device encryption logic when the embedded system integration is implemented.

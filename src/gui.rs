@@ -1,29 +1,28 @@
 use eframe::egui;
 use egui::{Ui, Color32, Button, RichText, Stroke, Rounding};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
-use crate::encryption::EncryptionKey; 
+use crate::encryption::EncryptionKey;
 use crate::logger::get_logger;
 use crate::backend::{EmbeddedConfig, ConnectionType};
 use crate::start_operation::FileOperation;
-use crate::split_key_gui::SplitKeyGui;
-use crate::transfer_gui::{TransferGui, TransferState, TransferReceiveState};
+use crate::transfer_gui::{TransferState, TransferReceiveState};
 use crate::split_key::TransferPackage;
 
 // Define color theme for the application
-struct AppTheme {
-    background: Color32,
-    accent: Color32,
-    text_primary: Color32,
-    text_secondary: Color32,
-    button_text: Color32,  // New color for button text
-    button_normal: Color32,
-    button_hovered: Color32,
-    button_active: Color32,
-    error: Color32,
-    success: Color32,
+pub struct AppTheme {
+    pub background: Color32,
+    pub accent: Color32,
+    pub text_primary: Color32,
+    pub text_secondary: Color32,
+    pub button_text: Color32,  // New color for button text
+    pub button_normal: Color32,
+    pub button_hovered: Color32,
+    pub button_active: Color32,
+    pub error: Color32,
+    pub success: Color32,
 }
 
 impl Default for AppTheme {
@@ -85,6 +84,8 @@ pub struct CrustyApp {
     // Status and errors
     pub status_message: String,
     pub error_message: String,
+    pub last_status: Option<String>,
+    pub last_error: Option<String>,
     
     // Flag for batch operation
     pub batch_mode: bool,
@@ -128,6 +129,8 @@ impl Default for CrustyApp {
             
             status_message: "Welcome to CRUSTy".to_string(),
             error_message: String::new(),
+            last_status: None,
+            last_error: None,
             
             batch_mode: false,
             
@@ -150,6 +153,15 @@ impl eframe::App for CrustyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Update operation results from shared results
         self.update_operation_results();
+        
+        // Check for any status or error messages set by UI callbacks
+        if let Some(status) = self.last_status.take() {
+            self.show_status(&status);
+        }
+        
+        if let Some(error) = self.last_error.take() {
+            self.show_error(&error);
+        }
         
         let mut style = (*ctx.style()).clone();
         style.visuals.window_fill = self.theme.background;
@@ -250,7 +262,7 @@ impl eframe::App for CrustyApp {
 
 impl CrustyApp {
     // Helper method to display error messages
-    fn show_error(&mut self, message: &str) {
+    pub fn show_error(&mut self, message: &str) {
         self.error_message = message.to_string();
         // Log the error if possible
         if let Some(logger) = get_logger() {
@@ -263,7 +275,7 @@ impl CrustyApp {
     }
     
     // Helper method to display status messages
-    fn show_status(&mut self, message: &str) {
+    pub fn show_status(&mut self, message: &str) {
         self.status_message = message.to_string();
         self.error_message.clear();
     }
@@ -882,7 +894,7 @@ impl CrustyApp {
                             .fill(self.theme.button_normal)
                             .rounding(Rounding::same(8.0))
                     ).clicked() {
-                        if let Some(key) = &self.current_key {
+                        if let Some(_key) = &self.current_key {
                             self.save_key_to_file();
                         } else {
                             self.show_error("No key selected");
@@ -1107,3 +1119,22 @@ impl CrustyApp {
     pub fn start_operation(&mut self) {
         crate::start_operation::start_operation(self);
     }
+    
+    // Split key management screen UI
+    fn show_split_key_management(&mut self, ui: &mut Ui) {
+        // Use the SplitKeyGui trait method
+        crate::split_key_gui::SplitKeyGui::show_split_key_management(self, ui);
+    }
+    
+    // Transfer preparation screen UI
+    fn show_transfer_preparation(&mut self, ui: &mut Ui) {
+        // Use the TransferGui trait method
+        crate::transfer_gui::TransferGui::show_transfer_preparation(self, ui);
+    }
+    
+    // Transfer receive screen UI
+    fn show_transfer_receive(&mut self, ui: &mut Ui) {
+        // Use the TransferGui trait method
+        crate::transfer_gui::TransferGui::show_transfer_receive(self, ui);
+    }
+}

@@ -1,12 +1,12 @@
 /// Local (software-based) implementation of the encryption backend.
 use std::path::Path;
 use std::fs::File;
-use std::io::{Read, Write, BufReader, BufWriter};
+use std::io::{Read, Write, BufReader};
 
 use crate::backend::{EncryptionBackend, LocalBackend};
 use crate::encryption::{
     EncryptionKey, EncryptionError,
-    derive_from_email, encrypt_data, decrypt_data,
+    encrypt_data, decrypt_data,
     encrypt_data_for_recipient, decrypt_data_with_recipient
 };
 
@@ -55,7 +55,7 @@ impl EncryptionBackend for LocalBackend {
             .map_err(|e| EncryptionError::Io(e))?;
         
         // Get file size for progress reporting
-        let file_size = source_file.metadata()
+        let _file_size = source_file.metadata()
             .map_err(|e| EncryptionError::Io(e))?
             .len();
         

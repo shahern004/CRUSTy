@@ -13,10 +13,8 @@ use std::str;
 use sharks::{Share, Sharks};
 use keyring::Entry;
 use qrcode::{QrCode, render::svg};
-use image::{DynamicImage, ImageFormat};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use rand::{Rng, thread_rng};
-use data_encoding::{BASE32, BASE32_NOPAD};
+use data_encoding::BASE32;
 
 use crate::encryption::EncryptionKey;
 
@@ -81,7 +79,7 @@ fn crc16(data: &[u8]) -> u16 {
 
 // A small subset of common words for mnemonic encoding
 // In a real implementation, you would use a larger wordlist like BIP39
-const WORDLIST: [&str; 256] = [
+const WORDLIST: [&str; 232] = [
     "apple", "banana", "cherry", "dog", "elephant", "fox", "grape", "horse", "igloo", "jacket",
     "kite", "lemon", "mango", "nest", "orange", "pear", "queen", "rabbit", "sun", "tree",
     "umbrella", "violet", "water", "xylophone", "yellow", "zebra", "air", "book", "cat", "door",
@@ -146,7 +144,6 @@ fn mnemonic_to_text(mnemonic: &str) -> Result<String, String> {
         Ok(text) => Ok(text),
         Err(_) => Err("Invalid UTF-8 sequence in mnemonic".to_string()),
     }
-}
 }
 
 /// Share format type
@@ -294,7 +291,9 @@ impl SplitEncryptionKey {
         // Checksum: 2 bytes (CRC16)
         // Data: variable length
         
-        let mut buffer = Vec::with_capacity(5 + share.as_ref().len());
+        // Get the bytes from the share
+        let share_bytes = Vec::from(share);
+        let mut buffer = Vec::with_capacity(5 + share_bytes.len());
         
         // Version (1)
         buffer.push(1);
@@ -310,7 +309,7 @@ impl SplitEncryptionKey {
         buffer.push(0);
         
         // Share data
-        buffer.extend_from_slice(share.as_ref());
+        buffer.extend_from_slice(&share_bytes);
         
         // Calculate checksum (CRC16)
         let checksum = crc16(&buffer[0..3]) as u16;
@@ -362,7 +361,9 @@ impl SplitEncryptionKey {
         // Extract share data
         let share_data = buffer[5..].to_vec();
         
-        Ok(Share::from(share_data))
+        // Create a new Share from the data
+        Share::try_from(&share_data[..])
+            .map_err(|e| SplitKeyError::Encoding(format!("Failed to create share: {}", e)))
     }
     
     /// Convert a share to a mnemonic phrase
@@ -370,8 +371,6 @@ impl SplitEncryptionKey {
         if index >= self.shares.len() {
             return Err(SplitKeyError::Encoding(format!("Share index {} out of bounds", index)));
         }
-        
-        let share = &self.shares[index];
         
         // First convert to text format
         let text = self.share_to_text(index)?;
@@ -400,7 +399,9 @@ impl SplitEncryptionKey {
         }
         
         let share = &self.shares[index];
-        let share_data = STANDARD.encode(share.as_ref());
+        // Get the bytes from the share
+        let share_bytes = Vec::from(share);
+        let share_data = STANDARD.encode(&share_bytes);
         
         let entry = Entry::new(service_name, &format!("crusty-share-{}", index))
             .map_err(|e| SplitKeyError::Storage(format!("Failed to create keyring entry: {}", e)))?;
@@ -422,7 +423,9 @@ impl SplitEncryptionKey {
         let share_bytes = STANDARD.decode(&share_data)
             .map_err(|e| SplitKeyError::Storage(format!("Invalid share data: {}", e)))?;
             
-        Ok(Share::from(share_bytes))
+        // Create a new Share from the data
+        Share::try_from(&share_bytes[..])
+            .map_err(|e| SplitKeyError::Storage(format!("Failed to create share: {}", e)))
     }
     
     /// Save a share to a file
@@ -436,7 +439,9 @@ impl SplitEncryptionKey {
         match format {
             ShareFormat::Binary => {
                 let share = &self.shares[index];
-                let share_data = STANDARD.encode(share.as_ref());
+                // Get the bytes from the share
+                let share_bytes = Vec::from(share);
+                let share_data = STANDARD.encode(&share_bytes);
                 file.write_all(share_data.as_bytes())?;
             },
             ShareFormat::Text => {
@@ -470,7 +475,9 @@ impl SplitEncryptionKey {
             let share_bytes = STANDARD.decode(&content)
                 .map_err(|e| SplitKeyError::Storage(format!("Invalid share data: {}", e)))?;
                 
-            Ok(Share::from(share_bytes))
+            // Create a new Share from the data
+            Share::try_from(&share_bytes[..])
+                .map_err(|e| SplitKeyError::Storage(format!("Failed to create share: {}", e)))
         }
     }
     
@@ -481,7 +488,9 @@ impl SplitEncryptionKey {
         }
         
         let share = &self.shares[index];
-        let share_data = STANDARD.encode(share.as_ref());
+        // Get the bytes from the share
+        let share_bytes = Vec::from(share);
+        let share_data = STANDARD.encode(&share_bytes);
         
         let code = QrCode::new(share_data.as_bytes())
             .map_err(|e| SplitKeyError::QrCode(format!("Failed to generate QR code: {}", e)))?;
@@ -507,6 +516,7 @@ impl SplitEncryptionKey {
 }
 
 /// Transfer package for out-of-band file transfers
+#[derive(Clone)]
 pub struct TransferPackage {
     /// The shares for the transfer
     shares: Vec<String>,

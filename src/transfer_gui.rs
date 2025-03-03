@@ -1,9 +1,6 @@
 use eframe::egui;
-use egui::{Ui, Button, RichText, Rounding, TextEdit, Label};
-use std::path::{Path, PathBuf};
+use egui::Ui;
 
-use crate::encryption::EncryptionKey;
-use crate::split_key::{SplitEncryptionKey, KeyShareManager, TransferPackage, ShareFormat, KeyPurpose, SplitKeyError};
 use crate::gui::CrustyApp;
 
 /// Extension trait for CrustyApp to add transfer functionality

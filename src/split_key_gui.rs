@@ -1,8 +1,5 @@
 use eframe::egui::Ui;
-use std::path::Path;
 
-use crate::encryption::EncryptionKey;
-use crate::split_key::{SplitEncryptionKey, SplitKeyError};
 use crate::gui::CrustyApp;
 
 /// Extension trait for CrustyApp to add split-key functionality
