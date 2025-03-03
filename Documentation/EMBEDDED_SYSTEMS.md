@@ -67,7 +67,7 @@ This trait ensures that all backends provide the same functionality, allowing th
 
 ## Embedded Backend
 
-The embedded backend is responsible for communicating with the STM32H5 device and translating between the `EncryptionBackend` trait methods and the device's protocol.
+The embedded backend is responsible for communicating with the STM32H5 device and translating between the `EncryptionBackend` trait methods and the device's protocol. CRUSTy will utilize cbindgen (https://github.com/mozilla/cbindgen) to route function from the Rust-ffi API to the C embedded device.
 
 ### Configuration
 
