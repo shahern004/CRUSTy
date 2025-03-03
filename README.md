@@ -125,7 +125,7 @@ CRUSTy features a modular backend architecture that supports offloading cryptogr
    - Utilizes hardware cryptographic accelerators (AES, PKA, HASH)
    - Provides secure key storage in isolated memory
 
-For detailed information on the embedded systems integration, see the [Embedded Systems Documentation](EMBEDDED_SYSTEMS.md).
+For detailed information on the embedded systems integration, see the [Embedded Systems Documentation](Documentation/EMBEDDED_SYSTEMS.md).
 
 ### Error Handling and Logging
 
@@ -139,7 +139,7 @@ CRUSTy implements robust error handling:
 
 ## Quick Start
 
-For detailed installation and usage instructions, please see the [Usage Guide](USAGE.md).
+For detailed installation and usage instructions, please see the [Usage Guide](Documentation/USAGE.md).
 
 ## Features
 

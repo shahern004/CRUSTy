@@ -59,20 +59,20 @@ payload = {
 
 ### 4. Custom Model Parameters
 
-You can create custom models with different parameters using the `create_optimized_model.py` script:
+You can create custom models with different parameters using the `scripts/ollama/create_optimized_model.py` script:
 
 ```bash
-python create_optimized_model.py
+python scripts/ollama/create_optimized_model.py
 ```
 
 Adjust the parameters in the script to find the optimal configuration for your system.
 
 ### 5. Monitor Performance
 
-Use the `compare_models.py` script to compare performance between different models:
+Use the `scripts/ollama/compare_models.py` script to compare performance between different models:
 
 ```bash
-python compare_models.py
+python scripts/ollama/compare_models.py
 ```
 
 ## Troubleshooting
@@ -89,10 +89,10 @@ The warning `key not found key=llama.attention.key_length default=128` is non-cr
 
 ## Scripts Included
 
-1. `create_optimized_model.py` - Creates an optimized version of the deepseek-coder model
-2. `compare_models.py` - Compares performance between original and optimized models
-3. `test_ollama_params.py` - Tests the model with custom parameters
-4. `test_ollama_timeout.py` - Tests the model with a timeout to prevent hanging
+1. `scripts/ollama/create_optimized_model.py` - Creates an optimized version of the deepseek-coder model
+2. `scripts/ollama/compare_models.py` - Compares performance between original and optimized models
+3. `scripts/ollama/test_ollama_params.py` - Tests the model with custom parameters
+4. `scripts/ollama/test_ollama_timeout.py` - Tests the model with a timeout to prevent hanging
 
 ## System Requirements
 
