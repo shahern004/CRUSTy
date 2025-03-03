@@ -2,45 +2,38 @@
 
 ## Introduction
 
-Welcome to CRUSTy, a secure file encryption application built with Rust. This guide provides both technical and simplified explanations of CRUSTy's functionality to help you understand how it works and how to use it effectively.
+Welcome to CRUSTy, a secure file encryption application built with Rust. This guide provides explanations of CRUSTy's functionality, alternating between technical details and simplified descriptions to help you understand both the implementation details and practical usage.
 
 ## Core Functionality
 
 ### Key Management
 
-#### Technical Explanation
+**Technical Implementation**
 
-CRUSTy uses AES-256-GCM for encryption, which requires a 256-bit key. The key management is implemented in the `EncryptionKey` struct:
+CRUSTy implements AES-256-GCM encryption using the `aes-gcm` crate, with keys managed through the `EncryptionKey` struct:
 
 ```rust
-/// Struct to hold and manage AES-256-GCM encryption keys
-#[derive(Clone)]
 pub struct EncryptionKey {
-    key: Key<Aes256Gcm>,  // Uses the aes-gcm crate's Key type
+    key: Key<Aes256Gcm>,  // 256-bit key for AES-GCM
 }
 
 impl EncryptionKey {
-    /// Generate a new random encryption key
     pub fn generate() -> Self {
-        // Uses the OsRng (operating system random number generator)
-        // to generate a cryptographically secure random key
+        // Uses the OS-provided CSPRNG for key generation
         let key = Aes256Gcm::generate_key(OsRng);
         EncryptionKey { key }
     }
 
-    /// Convert the key to a base64 string for storage
     pub fn to_base64(&self) -> String {
         // Encodes the binary key as a base64 string for storage
         STANDARD.encode(self.key)
     }
 
-    /// Create a key from a base64 string
     pub fn from_base64(encoded: &str) -> Result<Self, EncryptionError> {
-        // Decodes a base64 string back to a binary key
+        // Validates key length and format during import
         let key_bytes = STANDARD.decode(encoded)
             .map_err(|e| EncryptionError::KeyError(format!("Invalid base64 key: {}", e)))?;
 
-        // Validates that the key is the correct length (32 bytes = 256 bits)
         if key_bytes.len() != 32 {
             return Err(EncryptionError::KeyError(
                 format!("Invalid key length: {}, expected 32", key_bytes.len())
@@ -50,122 +43,88 @@ impl EncryptionKey {
         let key = *Key::<Aes256Gcm>::from_slice(&key_bytes);
         Ok(EncryptionKey { key })
     }
-
-    /// Save the key to a file
-    pub fn save_to_file(&self, path: &Path) -> Result<(), EncryptionError> {
-        // Creates a file and writes the base64-encoded key to it
-        File::create(path)
-            .map_err(EncryptionError::Io)?
-            .write_all(self.to_base64().as_bytes())
-            .map_err(EncryptionError::Io)
-    }
-
-    /// Load a key from a file
-    pub fn load_from_file(path: &Path) -> Result<Self, EncryptionError> {
-        // Reads the base64-encoded key from a file
-        let mut contents = String::new();
-        File::open(path)
-            .map_err(EncryptionError::Io)?
-            .read_to_string(&mut contents)
-            .map_err(EncryptionError::Io)?;
-
-        // Converts the base64 string back to a key
-        Self::from_base64(&contents)
-    }
 }
 ```
 
-The key management system uses Rust's strong type system to ensure that keys are handled securely. The `EncryptionKey` struct encapsulates the actual cryptographic key and provides methods for generating, saving, loading, and encoding/decoding keys. The use of Rust's `Result` type ensures that errors are properly handled throughout the key management process.
+The key management system leverages Rust's type system to ensure keys are handled securely. Keys are generated using the operating system's cryptographically secure random number generator (CSPRNG) and are stored in base64 format for human readability. The implementation includes validation checks to ensure keys are the correct length (32 bytes = 256 bits) and properly formatted.
 
-#### Simple Explanation
+**Practical Usage**
 
-CRUSTy's key management system works like a digital keychain:
+To manage encryption keys in CRUSTy:
 
-1. **Creating Keys**: When you create a new key, CRUSTy uses your computer's secure random number generator to create a unique 256-bit key (that's a number with 78 digits!). This is like having a key with billions of possible combinations.
+1. **Creating Keys**: Generate a new random 256-bit key by clicking "Create New Key" in the Keys section. Each key is created using your computer's secure random number generator.
 
-2. **Storing Keys**: Keys are stored in a special format called "base64" which converts the binary key data into text that can be easily stored in files. This is similar to converting a physical key's unique pattern into a code that can be written down.
+2. **Storing Keys**: Keys are stored as base64 text, which converts the binary key data into a readable format. You can save keys to files for backup by clicking "Save Key to File."
 
-3. **Loading Keys**: When you load a key from a file, CRUSTy reads the base64 text, converts it back to the binary format, and checks that it's the correct length (32 bytes).
+3. **Loading Keys**: Import existing keys by clicking "Load Key from File." CRUSTy verifies that the key is valid and the correct length before allowing its use.
 
-4. **Using Keys**: Once loaded, keys are kept in memory only while the application is running. The key is used to lock (encrypt) and unlock (decrypt) your files.
+4. **Using Keys**: Select the appropriate key from the dropdown menu when encrypting or decrypting files. The selected key must match the one used for encryption to successfully decrypt files.
 
-Think of the key management system as a secure key cabinet where you can create, store, and retrieve keys for your digital locks.
+### Encryption and Decryption
 
-### Basic Encryption and Decryption
+**Technical Implementation**
 
-#### Technical Explanation
-
-CRUSTy implements AES-256-GCM encryption with proper nonce handling and authentication. Here's the core encryption function:
+CRUSTy implements AES-256-GCM authenticated encryption with proper nonce handling:
 
 ```rust
-/// Encrypts raw data using AES-256-GCM encryption
 pub fn encrypt_data(data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
-    // Create the cipher instance with our key
+    // Initialize the AES-GCM cipher with the provided key
     let cipher = Aes256Gcm::new(&key.key);
 
-    // Generate a random nonce (Number used ONCE)
-    let mut nonce_bytes = [0u8; 12]; // AES-GCM uses 12-byte nonces
+    // Generate a unique 12-byte nonce for this encryption operation
+    let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    // Encrypt the data
+    // Perform authenticated encryption
     let encrypted_data = match cipher.encrypt(nonce, data) {
         Ok(data) => data,
-        Err(e) => {
-            return Err(EncryptionError::Encryption(e.to_string()));
-        }
+        Err(e) => return Err(EncryptionError::Encryption(e.to_string())),
     };
 
-    // Create the output buffer with the nonce and encrypted data
+    // Format the output with nonce and encrypted data
     let mut output = Vec::with_capacity(nonce_bytes.len() + 4 + encrypted_data.len());
-
-    // Write the nonce
     output.extend_from_slice(&nonce_bytes);
-
-    // Write the encrypted data length
     output.extend_from_slice(&(encrypted_data.len() as u32).to_le_bytes());
-
-    // Write the encrypted data
     output.extend_from_slice(&encrypted_data);
 
     Ok(output)
 }
 ```
 
-And the corresponding decryption function:
+The decryption function performs the inverse operation:
 
 ```rust
-/// Decrypts raw data that was encrypted with AES-256-GCM
 pub fn decrypt_data(data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
-    // Check if the data is long enough to contain a nonce and length
+    // Validate input data length
     if data.len() < 12 + 4 {
         return Err(EncryptionError::Decryption("Data too short".to_string()));
     }
 
-    // Read the nonce from the beginning of the data
+    // Extract the nonce from the beginning of the data
     let nonce_bytes = &data[0..12];
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    // Read the encrypted data length
+    // Extract the encrypted data length
     let size_bytes = &data[12..16];
     let chunk_size = u32::from_le_bytes([size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3]]) as usize;
 
-    // Check if the data is long enough to contain the encrypted chunk
+    // Validate encrypted data length
     if data.len() < 16 + chunk_size {
         return Err(EncryptionError::Decryption("Data too short".to_string()));
     }
 
-    // Read the encrypted chunk
+    // Extract the encrypted data
     let encrypted_chunk = &data[16..16 + chunk_size];
 
-    // Create the cipher instance with our key
+    // Initialize the AES-GCM cipher with the provided key
     let cipher = Aes256Gcm::new(&key.key);
 
-    // Decrypt the chunk
+    // Perform authenticated decryption
     let decrypted_data = match cipher.decrypt(nonce, encrypted_chunk) {
         Ok(data) => data,
         Err(e) => {
-            // Provide a more specific error message for authentication failures
+            // Provide specific error for authentication failures
             if e.to_string().contains("authentication") || e.to_string().contains("tag mismatch") {
                 return Err(EncryptionError::Decryption(
                     "Authentication failed: The encryption key is incorrect or the data is corrupted".to_string()
@@ -180,42 +139,34 @@ pub fn decrypt_data(data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, Encrypt
 }
 ```
 
-The encryption process uses AES-256-GCM, which is an authenticated encryption with associated data (AEAD) algorithm. This means it not only encrypts the data but also provides integrity protection. The implementation includes:
+The implementation uses AES-256-GCM, which provides both confidentiality and authentication. Each encryption operation uses a unique nonce (number used once) generated with a cryptographically secure random number generator. The encrypted output includes the nonce, the length of the encrypted data, and the encrypted data itself with its authentication tag. During decryption, the authentication tag is verified to ensure the data hasn't been tampered with.
 
-1. A unique nonce (number used once) for each encryption operation
-2. Proper error handling for both encryption and decryption
-3. Authentication to detect tampering or incorrect keys
-4. A structured format for the encrypted data that includes the nonce and data length
+**Practical Usage**
 
-#### Simple Explanation
+To encrypt and decrypt files with CRUSTy:
 
-CRUSTy's encryption and decryption work like a sophisticated digital lock system:
+1. **Encryption Process**:
 
-1. **Encryption (Locking)**:
+   - Select a file to encrypt and choose an output location
+   - Select or create an encryption key
+   - Click "Encrypt" to secure your file
+   - CRUSTy adds a unique random value (nonce) to ensure that even identical files encrypt differently each time
+   - The encrypted file includes a tamper-evident seal (authentication tag)
 
-   - When you encrypt a file, CRUSTy takes your data and your encryption key.
-   - It generates a unique "nonce" (a random number used only once) for this specific encryption.
-   - It uses the AES-256-GCM algorithm to scramble your data in a way that can only be unscrambled with the same key.
-   - It adds a special "authentication tag" that works like a tamper-evident seal.
-   - It packages everything together: the nonce, the encrypted data, and the authentication tag.
-
-2. **Decryption (Unlocking)**:
-   - When you decrypt a file, CRUSTy extracts the nonce and encrypted data.
-   - It uses your key and the nonce to try to unscramble the data.
-   - It checks the authentication tag to make sure the data hasn't been tampered with.
-   - If everything checks out, you get your original data back.
-   - If the wrong key is used or the data has been modified, the authentication check fails and you get an error message.
-
-Think of it like a high-security safe that not only requires the right combination but also can tell if someone has tried to break in.
+2. **Decryption Process**:
+   - Select an encrypted file and choose where to save the decrypted result
+   - Select the same key that was used for encryption
+   - Click "Decrypt" to recover your original file
+   - CRUSTy verifies the authentication tag to ensure the file hasn't been modified
+   - If the wrong key is used or the file has been tampered with, you'll receive an error message
 
 ### Recipient-Specific Encryption
 
-#### Technical Explanation
+**Technical Implementation**
 
 CRUSTy implements recipient-specific encryption using key derivation from email addresses:
 
 ```rust
-/// Derives cryptographic material from an email address
 fn derive_from_email(email: &str, salt: &[u8]) -> Vec<u8> {
     // Normalize the email by trimming whitespace and converting to lowercase
     let normalized_email = email.trim().to_lowercase();
@@ -235,14 +186,12 @@ fn derive_from_email(email: &str, salt: &[u8]) -> Vec<u8> {
 }
 
 impl EncryptionKey {
-    /// Create a recipient-specific key by combining the master key with email-derived material
     pub fn for_recipient(&self, email: &str) -> Result<Self, EncryptionError> {
         // Use a fixed application salt for consistency
         let app_salt = b"CRUSTy-Email-Key-Derivation-Salt-v1";
         let email_material = derive_from_email(email, app_salt);
 
         // Use HKDF (HMAC-based Key Derivation Function) to derive a new key
-        // from the master key and the email-derived material
         let hkdf = Hkdf::<Sha256>::new(
             Some(&email_material),
             self.key.as_slice()
@@ -263,7 +212,6 @@ impl EncryptionKey {
 The recipient-specific encryption function:
 
 ```rust
-/// Encrypts raw data for a specific recipient using their email address
 pub fn encrypt_data_for_recipient(
     data: &[u8],
     master_key: &EncryptionKey,
@@ -272,139 +220,107 @@ pub fn encrypt_data_for_recipient(
     // Derive recipient-specific key
     let recipient_key = master_key.for_recipient(recipient_email)?;
 
-    // Create the cipher instance with our key
+    // Create the cipher instance with the derived key
     let cipher = Aes256Gcm::new(&recipient_key.key);
 
-    // Generate a random nonce (Number used ONCE)
-    let mut nonce_bytes = [0u8; 12]; // AES-GCM uses 12-byte nonces
+    // Generate a random nonce
+    let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Encrypt the data
     let encrypted_data = match cipher.encrypt(nonce, data) {
         Ok(data) => data,
-        Err(e) => {
-            return Err(EncryptionError::Encryption(e.to_string()));
-        }
+        Err(e) => return Err(EncryptionError::Encryption(e.to_string())),
     };
 
-    // Create the output buffer with the nonce, recipient email, and encrypted data
+    // Format the output with nonce, recipient email, and encrypted data
     let email_bytes = recipient_email.as_bytes();
     let mut output = Vec::with_capacity(
         nonce_bytes.len() + 2 + email_bytes.len() + 4 + encrypted_data.len()
     );
 
-    // Write the nonce
     output.extend_from_slice(&nonce_bytes);
-
-    // Write recipient email length and email
     output.extend_from_slice(&(email_bytes.len() as u16).to_le_bytes());
     output.extend_from_slice(email_bytes);
-
-    // Write the encrypted data length
     output.extend_from_slice(&(encrypted_data.len() as u32).to_le_bytes());
-
-    // Write the encrypted data
     output.extend_from_slice(&encrypted_data);
 
     Ok(output)
 }
 ```
 
-The recipient-specific encryption uses HKDF (HMAC-based Key Derivation Function) to derive a unique encryption key from the master key and the recipient's email address. This provides an additional layer of security by binding the encrypted data to both the master key and the recipient's identity.
+The recipient-specific encryption uses HKDF (HMAC-based Key Derivation Function) with SHA-256 to derive a unique encryption key from the master key and the recipient's normalized email address. The email is normalized by trimming whitespace and converting to lowercase to ensure consistent key derivation. The encrypted output includes the nonce, the recipient's email address, and the encrypted data with its authentication tag.
 
-#### Simple Explanation
+**Practical Usage**
 
-Recipient-specific encryption in CRUSTy works like a personalized lock system:
+To use recipient-specific encryption in CRUSTy:
 
-1. **Creating a Recipient-Specific Key**:
+1. **Setting Up Recipient Encryption**:
 
-   - You start with your master key (like a master locksmith key).
-   - You provide a recipient's email address.
-   - CRUSTy processes the email address in a standardized way (lowercase, trimmed).
-   - It combines your master key with information derived from the email to create a unique key just for that recipient.
-   - This is like creating a custom lock that responds to both your master key and the recipient's identity.
+   - Check "Use recipient-specific encryption" in the main interface
+   - Enter the recipient's email address
+   - Select or create a master key
+   - Encrypt your file as normal
 
-2. **Encrypting for a Recipient**:
+2. **How It Works**:
 
-   - When you encrypt a file for a specific recipient, CRUSTy uses the derived key to encrypt the data.
-   - It stores the recipient's email address within the encrypted file.
-   - The file can only be decrypted with both the master key and knowledge of the recipient's email.
+   - CRUSTy creates a unique key specifically for that recipient by combining your master key with their email address
+   - The recipient's email is stored within the encrypted file
+   - The file can only be decrypted with both your master key and knowledge of the recipient's email
 
 3. **Decrypting Recipient-Specific Files**:
-   - When decrypting, CRUSTy reads the recipient email from the file.
-   - It recreates the recipient-specific key using the master key and the stored email.
-   - If successful, it shows you who the file was encrypted for.
+   - When decrypting, CRUSTy automatically detects if a file was encrypted for a specific recipient
+   - It recreates the recipient-specific key using your master key and the stored email
+   - After successful decryption, CRUSTy displays the recipient's email address
 
-Think of it like a package delivery system where each package has both your address and the recipient's address on it, and can only be opened with a key that knows both addresses.
+This feature is useful for tracking who files were encrypted for and adding an additional layer of security by binding the encrypted data to both your master key and the recipient's identity.
 
 ### Backend Abstraction and Embedded System Integration
 
-#### Technical Explanation
+**Technical Implementation**
 
 CRUSTy implements a backend abstraction layer to support both local (software-based) encryption and hardware-accelerated encryption via embedded devices:
 
 ```rust
-/// Trait defining the interface for encryption backends.
 pub trait EncryptionBackend {
-    /// Encrypts raw data using the provided key.
     fn encrypt_data(&self, data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError>;
-
-    /// Decrypts raw data using the provided key.
     fn decrypt_data(&self, data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError>;
-
-    /// Encrypts raw data for a specific recipient using their email.
     fn encrypt_data_for_recipient(
         &self,
         data: &[u8],
         master_key: &EncryptionKey,
         recipient_email: &str
     ) -> Result<Vec<u8>, EncryptionError>;
-
-    // ... additional methods for file operations ...
+    // Additional methods for file operations...
 }
 
-/// Local (software-based) implementation of the encryption backend.
 pub struct LocalBackend;
 
-/// Configuration for the embedded device backend.
 pub struct EmbeddedConfig {
-    /// Connection type (e.g., USB, UART, Ethernet)
     pub connection_type: ConnectionType,
-    /// Device identifier or address
     pub device_id: String,
-    /// Additional connection parameters
     pub parameters: std::collections::HashMap<String, String>,
 }
 
-/// Connection types for the embedded device.
 pub enum ConnectionType {
-    /// USB connection
     Usb,
-    /// Serial/UART connection
     Serial,
-    /// Ethernet/TCP connection
     Ethernet,
 }
 
-/// Embedded device implementation of the encryption backend.
 pub struct EmbeddedBackend {
-    /// Configuration for the embedded device connection
     config: EmbeddedConfig,
-    /// Whether the backend is currently connected
     connected: bool,
 }
 
-/// Factory for creating encryption backends.
 pub struct BackendFactory;
 
 impl BackendFactory {
-    /// Creates a new local (software-based) encryption backend.
     pub fn create_local() -> Box<dyn EncryptionBackend> {
         Box::new(LocalBackend)
     }
 
-    /// Creates a new embedded device encryption backend with the specified configuration.
     pub fn create_embedded(config: EmbeddedConfig) -> Box<dyn EncryptionBackend> {
         Box::new(EmbeddedBackend {
             config,
@@ -414,7 +330,7 @@ impl BackendFactory {
 }
 ```
 
-The backend selection is handled in the `start_operation` function:
+The backend selection is handled in the operation coordinator:
 
 ```rust
 // Create the appropriate backend
@@ -429,51 +345,50 @@ let backend = if self.use_embedded_backend && self.embedded_config.is_some() {
 
 The backend abstraction uses Rust's trait system to define a common interface for all encryption backends. This allows the application to seamlessly switch between local (software-based) encryption and hardware-accelerated encryption via embedded devices. The `BackendFactory` provides a factory pattern for creating the appropriate backend based on the user's configuration.
 
-#### Simple Explanation
+**Practical Usage**
 
-CRUSTy's backend system works like having multiple engines that can power the same car:
+CRUSTy's backend system allows you to choose between software-based encryption and hardware-accelerated encryption:
 
-1. **Backend Abstraction**:
+1. **Local Backend (Default)**:
 
-   - CRUSTy defines a standard set of operations that any encryption "engine" must be able to perform.
-   - This includes encrypting data, decrypting data, handling files, and working with recipient-specific encryption.
-   - This standard interface allows CRUSTy to swap between different encryption engines without changing how the rest of the application works.
+   - Uses your computer's processor to perform encryption operations
+   - Available on all systems without additional hardware
+   - Provides strong security through software implementation
 
-2. **Local Backend**:
+2. **Embedded Backend (Optional)**:
 
-   - The default "engine" is the local backend, which uses your computer's processor to perform encryption.
-   - It implements all the encryption operations using the software libraries built into CRUSTy.
-   - This is like using your car's standard engine - reliable and always available.
+   - Connects to an external STM32H5 hardware device
+   - Offloads encryption operations to dedicated hardware
+   - Provides enhanced security through physical isolation
+   - Potentially faster for large files due to hardware acceleration
 
-3. **Embedded Backend**:
+3. **Configuring the Embedded Backend**:
 
-   - The alternative "engine" is the embedded backend, which connects to an external hardware device (STM32H5).
-   - This device has specialized hardware for encryption operations, making them faster and more secure.
-   - You can connect to this device via USB, Serial, or Network connections.
-   - This is like having a high-performance engine that you can attach to your car for special situations.
+   - Check "Use embedded system for cryptographic operations"
+   - Select the connection type (USB, Serial, or Ethernet)
+   - Enter the device identifier or address
+     i - Configure any additional connection parameters
+   - Click "Apply Configuration"
 
-4. **Backend Selection**:
-   - When you perform an encryption operation, CRUSTy checks if you've configured and enabled the embedded backend.
-   - If yes, it uses the hardware device for encryption.
-   - If no, or if there's a problem with the device, it automatically falls back to the local backend.
-   - This is like your car automatically switching between engines based on what's available and what you've selected.
+4. **Automatic Fallback**:
+   - If the embedded device is unavailable or encounters an error, CRUSTy automatically falls back to the local backend
+   - This ensures operations can continue even if hardware is disconnected
 
-Think of it as having both a standard engine and a specialized turbocharger that you can switch between depending on your needs.
+The backend system provides flexibility to choose the appropriate encryption method based on your security requirements and available hardware.
 
 ## Practical Usage
 
 ### Encrypting Files
 
-#### Technical Implementation
+**Technical Implementation**
 
-The file encryption process is implemented in the `start_operation` function:
+The file encryption process is implemented in the operation coordinator:
 
 ```rust
 match operation {
     FileOperation::Encrypt => {
         if let Some(file_path) = files.first() {
-            let file_path = file_path.clone(); // Clone the PathBuf
-
+            let file_path = file_path.clone();
             let file_name = file_path.file_name()
                 .unwrap_or_default()
                 .to_string_lossy();
@@ -511,42 +426,57 @@ match operation {
                     }
                 )
             };
-
-            // Log the result and update the UI
-            // ...
+            // Handle result...
         }
     },
     // Other operations...
 }
 ```
 
-This code demonstrates how CRUSTy handles file encryption operations, including:
+The implementation handles both standard and recipient-specific encryption, with progress tracking through a callback function. It determines the output path based on the input file name and selects the appropriate encryption method based on user settings.
 
-1. Determining the output path based on the input file name
-2. Selecting between standard and recipient-specific encryption based on user settings
-3. Providing progress updates during the encryption process
-4. Handling and logging the results
-
-#### Simple Usage
+**Practical Usage**
 
 To encrypt a file with CRUSTy:
 
-1. **Select the File**: Click "Select File" and choose the file you want to encrypt.
-2. **Choose the Output Directory**: Select where you want the encrypted file to be saved.
-3. **Select or Create a Key**: Either use an existing key or create a new one.
-4. **Optional: Specify a Recipient**: If you want to encrypt for a specific person, check "Use recipient-specific encryption" and enter their email.
-5. **Optional: Use Hardware Acceleration**: If you have a compatible STM32H5 device, check "Use embedded system for cryptographic operations" and configure the connection.
-6. **Start Encryption**: Click "Encrypt" to start the process.
-7. **Monitor Progress**: The progress bar will show you how far along the encryption is.
-8. **View Results**: Once complete, CRUSTy will show you the results and any errors.
+1. **Select Operation Mode**:
 
-The encrypted file will have the same name as the original with ".encrypted" added to the end.
+   - Choose "Single File" for individual files or "Multiple Files" for batch processing
+
+2. **Select Files**:
+
+   - Click "Select File(s)" and choose the file(s) you want to encrypt
+
+3. **Configure Output**:
+
+   - Select an output directory where encrypted files will be saved
+   - Encrypted files will have the same name as the original with ".encrypted" added
+
+4. **Select Encryption Key**:
+
+   - Choose an existing key or create a new one
+   - The key will be used to encrypt all selected files
+
+5. **Optional: Specify Recipient**:
+
+   - Check "Use recipient-specific encryption" if encrypting for a specific person
+   - Enter the recipient's email address
+
+6. **Optional: Use Hardware**:
+
+   - Check "Use embedded system" if you have a compatible STM32H5 device
+   - Configure the connection settings
+
+7. **Start Encryption**:
+   - Click "Encrypt" to begin the process
+   - The progress bar will show the current status
+   - Results will be displayed when complete
 
 ### Decrypting Files
 
-#### Technical Implementation
+**Technical Implementation**
 
-The file decryption process is implemented in the `start_operation` function:
+The file decryption process is implemented in the operation coordinator:
 
 ```rust
 FileOperation::Decrypt => {
@@ -616,35 +546,51 @@ FileOperation::Decrypt => {
                 }
             )
         };
-
-        // Log the result and update the UI
-        // ...
+        // Handle result...
     }
 },
 ```
 
-This code demonstrates how CRUSTy handles file decryption operations, including:
+The implementation attempts recipient-specific decryption first if enabled, falling back to standard decryption if that fails. It determines the output path based on the input file name, removing the ".encrypted" extension if present. Progress is tracked through a callback function, and any detected recipient information is stored in the results.
 
-1. Determining the output path based on the input file name
-2. Attempting recipient-specific decryption first if enabled
-3. Falling back to standard decryption if recipient-specific decryption fails
-4. Providing progress updates during the decryption process
-5. Handling authentication failures with specific error messages
-
-#### Simple Usage
+**Practical Usage**
 
 To decrypt a file with CRUSTy:
 
-1. **Select the File**: Click "Select File" and choose the encrypted file.
-2. **Choose the Output Directory**: Select where you want the decrypted file to be saved.
-3. **Select the Key**: Choose the key that was used to encrypt the file.
-4. **Optional: Enable Recipient Detection**: If the file might be encrypted for a specific recipient, check "Use recipient-specific encryption".
-5. **Optional: Use Hardware Acceleration**: If you have a compatible STM32H5 device, check "Use embedded system for cryptographic operations".
-6. **Start Decryption**: Click "Decrypt" to start the process.
-7. **Monitor Progress**: The progress bar will show you how far along the decryption is.
-8. **View Results**: Once complete, CRUSTy will show you the results, including the recipient's email if it was a recipient-specific encryption.
+1. **Select Operation Mode**:
 
-If the decryption fails with an "Authentication failed" error, it means either:
+   - Choose "Single File" for individual files or "Multiple Files" for batch processing
+
+2. **Select Files**:
+
+   - Click "Select File(s)" and choose the encrypted file(s)
+
+3. **Configure Output**:
+
+   - Select an output directory where decrypted files will be saved
+   - Decrypted files will have the ".encrypted" extension removed
+
+4. **Select Decryption Key**:
+
+   - Choose the same key that was used to encrypt the file
+   - Using the wrong key will result in an authentication error
+
+5. **Optional: Enable Recipient Detection**:
+
+   - Check "Use recipient-specific encryption" to detect if the file was encrypted for a specific recipient
+   - If detected, the recipient's email will be displayed in the results
+
+6. **Optional: Use Hardware**:
+
+   - Check "Use embedded system" if you have a compatible STM32H5 device
+   - Configure the connection settings
+
+7. **Start Decryption**:
+   - Click "Decrypt" to begin the process
+   - The progress bar will show the current status
+   - Results will be displayed when complete
+
+If decryption fails with an "Authentication failed" error, it means either:
 
 - You're using the wrong key
 - The file has been tampered with
@@ -652,7 +598,7 @@ If the decryption fails with an "Authentication failed" error, it means either:
 
 ### Batch Processing
 
-#### Technical Implementation
+**Technical Implementation**
 
 CRUSTy supports batch processing of multiple files:
 
@@ -691,78 +637,94 @@ FileOperation::BatchEncrypt => {
             }
         )
     };
-
-    // Log and handle results
-    // ...
+    // Handle results...
 }
 ```
 
-The batch processing implementation:
+The batch processing implementation handles multiple files in a single operation, with progress tracking for each file. It selects between standard and recipient-specific encryption based on user settings and processes each file individually, collecting the results.
 
-1. Converts the list of file paths to the format expected by the backend
-2. Selects between standard and recipient-specific encryption based on user settings
-3. Provides progress updates for each file during the encryption process
-4. Handles and logs the results for each file
+**Practical Usage**
 
-#### Simple Usage
+To process multiple files at once with CRUSTy:
 
-To process multiple files at once:
+1. **Select "Multiple Files" Mode**:
 
-1. **Select "Multiple Files" Mode**: Switch to the batch processing mode.
-2. **Select Files**: Click "Select Files" to choose multiple files.
-3. **Choose the Output Directory**: Select where you want the encrypted/decrypted files to be saved.
-4. **Select or Create a Key**: Either use an existing key or create a new one.
-5. **Optional: Specify a Recipient**: For encryption, you can check "Use recipient-specific encryption" and enter an email.
-6. **Optional: Use Hardware Acceleration**: If you have a compatible STM32H5 device, check "Use embedded system for cryptographic operations".
-7. **Start Processing**: Click "Encrypt" or "Decrypt" to start the process.
-8. **Monitor Progress**: The progress bar will show you how far along each file is.
-9. **View Results**: Once complete, CRUSTy will show you the results for each file.
+   - Switch to the batch processing mode using the radio button
 
-Batch processing is especially useful when you need to encrypt or decrypt many files at once, saving you time and effort.
+2. **Select Files**:
+
+   - Click "Select Files" to choose multiple files for processing
+   - You can select files of different types and sizes
+
+3. **Configure Output**:
+
+   - Select an output directory where processed files will be saved
+   - Each file will be processed individually with its own progress tracking
+
+4. **Select Encryption Key**:
+
+   - Choose an existing key or create a new one
+   - The same key will be used for all selected files
+
+5. **Optional: Specify Recipient**:
+
+   - For encryption, you can check "Use recipient-specific encryption" and enter an email
+   - All files will be encrypted for the same recipient
+
+6. **Start Processing**:
+   - Click "Encrypt" or "Decrypt" to begin the batch operation
+   - The progress bar will show the progress for each file
+   - Results for each file will be displayed when complete
+
+Batch processing is particularly useful when you need to encrypt or decrypt many files at once, saving time and effort compared to processing files individually.
 
 ## Security Considerations
 
-### Technical Security Details
+**Technical Security Details**
 
 CRUSTy implements several security best practices:
 
-1. **AES-256-GCM**: Uses the AES algorithm in Galois/Counter Mode with 256-bit keys, which provides both confidentiality and authentication.
+1. **AES-256-GCM**: Uses the AES algorithm in Galois/Counter Mode with 256-bit keys, providing both confidentiality and authentication.
 
-2. **Nonce Management**: Generates a unique nonce for each encryption operation to prevent replay attacks.
+2. **Nonce Management**: Generates a unique 96-bit nonce for each encryption operation using a cryptographically secure random number generator (OsRng).
 
-3. **Authentication**: The GCM mode provides authentication to detect tampering with the ciphertext.
+3. **Authentication**: The GCM mode includes a 128-bit authentication tag that verifies both the integrity of the ciphertext and the authenticity of its origin.
 
-4. **Key Derivation**: Uses HKDF with SHA-256 for secure key derivation in recipient-specific encryption.
+4. **Key Derivation**: Uses HKDF with SHA-256 for secure key derivation in recipient-specific encryption, following NIST recommendations.
 
-5. **Error Handling**: Provides specific error messages for authentication failures while avoiding information leakage.
+5. **Error Handling**: Provides specific error messages for authentication failures while avoiding information leakage that could aid attackers.
 
-6. **Hardware Isolation**: Supports offloading cryptographic operations to isolated hardware for enhanced security.
+6. **Hardware Isolation**: Supports offloading cryptographic operations to isolated hardware for enhanced security against software-based attacks.
 
-7. **Memory Safety**: Built with Rust, which provides memory safety guarantees to prevent buffer overflows and other memory-related vulnerabilities.
+7. **Memory Safety**: Built with Rust, which provides memory safety guarantees through its ownership system, preventing buffer overflows and use-after-free vulnerabilities.
 
-### Simple Security Guidelines
+8. **Secure Defaults**: Generates cryptographically secure random keys by default and requires explicit user action to use potentially weaker imported keys.
+
+**Security Guidelines for Users**
 
 When using CRUSTy, keep these security considerations in mind:
 
-1. **Key Protection**: Your encryption keys are the most critical security element. Keep them safe and backed up in a secure location.
+1. **Key Protection**: Your encryption keys are the most critical security element. Store them securely and maintain backups in a safe location.
 
-2. **Strong Keys**: Always use the built-in key generator rather than creating your own keys, as it uses a secure random number generator.
+2. **Strong Keys**: Always use CRUSTy's built-in key generator rather than creating your own keys, as it uses a secure random number generator.
 
-3. **Authentication**: CRUSTy will warn you if a file has been tampered with or if you're using the wrong key. Pay attention to these warnings.
+3. **Authentication Warnings**: Pay attention to authentication failure warnings, which indicate either the wrong key is being used or the file has been tampered with.
 
-4. **Computer Security**: CRUSTy can't protect against malware on your computer that might capture your keys or see your data before it's encrypted.
+4. **System Security**: CRUSTy can't protect against malware on your computer that might capture your keys or access your data before encryption.
 
-5. **Physical Security**: If someone has access to your computer while you're using CRUSTy with an unlocked key, they might be able to access your files.
+5. **Physical Security**: If someone has physical access to your computer while you're using CRUSTy with an unlocked key, they might be able to access your files.
 
 6. **Hardware Benefits**: Using the embedded hardware backend provides additional security by isolating cryptographic operations from your main computer.
 
-Remember that encryption is just one part of a comprehensive security strategy. It's important to maintain good security practices in all aspects of your digital life.
+7. **Key Rotation**: Consider periodically generating new keys for sensitive data, especially if you suspect a key might have been compromised.
+
+Remember that encryption is just one part of a comprehensive security strategy. Maintain good security practices in all aspects of your digital life, including strong passwords, system updates, and malware protection.
 
 ## Troubleshooting
 
-### Common Issues and Solutions
+**Common Issues and Solutions**
 
-#### "Destination file already exists"
+### "Destination file already exists"
 
 **Technical Cause**: CRUSTy checks if the destination file exists before starting encryption/decryption operations to prevent accidental overwrites:
 
@@ -777,7 +739,7 @@ if dest_path.exists() {
 
 **Solution**: Delete the existing file or choose a different output directory.
 
-#### "Authentication failed" or "Wrong encryption key"
+### "Authentication failed" or "Wrong encryption key"
 
 **Technical Cause**: AES-GCM includes an authentication tag that verifies the integrity of the data and the correctness of the key. If authentication fails, it means either the key is incorrect or the data has been tampered with:
 
@@ -798,9 +760,9 @@ let decrypted_data = match cipher.decrypt(nonce, encrypted_chunk) {
 };
 ```
 
-**Solution**: Try a different key if you have one, or check if the file was transferred correctly.
+**Solution**: Try a different key if you have one, or check if the file was transferred correctly. If you've lost all copies of the correct key, the file cannot be recovered.
 
-#### "Embedded backend not implemented"
+### "Embedded backend not implemented"
 
 **Technical Cause**: The embedded backend is currently a placeholder that returns an error when used:
 
@@ -808,15 +770,13 @@ let decrypted_data = match cipher.decrypt(nonce, encrypted_chunk) {
 fn encrypt_data(&self, data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError> {
     // This is a placeholder implementation that will be replaced with actual
     // embedded device encryption logic when the embedded system integration is implemented.
-
-    // For now, return an error indicating that the embedded backend is not implemented
     Err(EncryptionError::Encryption("Embedded backend not implemented".to_string()))
 }
 ```
 
 **Solution**: Make sure you've clicked "Apply Configuration" after entering the device details. Check that your device is properly connected and powered on. This error may also appear if the embedded system integration is not yet fully implemented in your version of CRUSTy.
 
-#### "Failed to connect to embedded device"
+### "Failed to connect to embedded device"
 
 **Technical Cause**: The connection to the embedded device failed during the initialization phase:
 
@@ -838,7 +798,7 @@ pub fn connect(&mut self) -> Result<(), EncryptionError> {
 - Ensure the device is powered on and running the CRUSTy firmware
 - Try a different connection type if available
 
-#### "Communication error with embedded device"
+### "Communication error with embedded device"
 
 **Technical Cause**: The connection was established but was interrupted during an operation:
 

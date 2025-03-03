@@ -1,8 +1,141 @@
 # CRUSTy - A Secure File Encryption Application
 
-CRUSTy is a desktop application built with Rust that provides secure file encryption and decryption using AES-256-GCM encryption.
+CRUSTy is a robust, memory-safe file encryption application built with Rust that implements AES-256-GCM authenticated encryption with a focus on security, usability, and extensibility. It provides a comprehensive solution for protecting sensitive data through strong cryptographic primitives while maintaining a user-friendly interface.
 
 ![CRUSTy Application](https://github.com/shahern004/CRUSTy/raw/main/screenshots/crusty_main.png)
+
+## For Security Engineers
+
+CRUSTy demonstrates several critical security engineering principles:
+
+- **Defense-in-Depth**: Implements multiple security layers including authenticated encryption, key derivation functions, and optional hardware isolation
+- **Cryptographic Agility**: Modular backend architecture allows for algorithm substitution and hardware acceleration
+- **Secure Key Management**: Implements Shamir's Secret Sharing for key splitting, secure key storage, and recipient-specific key derivation
+- **Memory Safety**: Built with Rust to eliminate entire classes of memory-related vulnerabilities (buffer overflows, use-after-free, etc.)
+- **Authentication**: Uses AES-GCM's authenticated encryption to provide integrity verification and tamper detection
+- **Secure Defaults**: Generates cryptographically secure random keys and nonces by default
+- **Fail-Secure Design**: Implements proper error handling that defaults to secure states and prevents partial file corruption
+
+The application serves as a practical example of implementing modern cryptographic protocols with proper nonce management, authenticated encryption, and key derivation techniques that align with NIST recommendations and cryptographic best practices.
+
+## Technical Systems Overview
+
+### Core Cryptographic Implementation
+
+CRUSTy implements AES-256-GCM (Galois/Counter Mode) encryption with the following technical specifications:
+
+- **Key Size**: 256-bit encryption keys
+- **Nonce Management**: Unique 96-bit (12-byte) nonce generated for each encryption operation
+- **Authentication Tag**: 128-bit authentication tag for integrity verification
+- **Key Derivation**: HKDF with SHA-256 for recipient-specific key derivation
+- **Random Number Generation**: OS-provided cryptographically secure random number generator (OsRng)
+
+The encrypted file format includes:
+
+1. 12-byte nonce
+2. 4-byte encrypted data length
+3. Encrypted data with authentication tag
+
+For recipient-specific encryption, the format extends to:
+
+1. 12-byte nonce
+2. 2-byte recipient email length
+3. Recipient email (variable length)
+4. 4-byte encrypted data length
+5. Encrypted data with authentication tag
+
+### Architecture
+
+CRUSTy follows a layered architecture with clear separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  User Interface                      │
+│  (GUI implementation using egui Rust framework)      │
+└───────────────────────────┬─────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────┐
+│               Operation Coordinator                  │
+│  (Manages file operations, progress tracking, etc.)  │
+└───────────────────────────┬─────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────┐
+│               Backend Abstraction                    │
+│  (Trait-based interface for encryption backends)     │
+└─────────┬─────────────────────────────────┬─────────┘
+          │                                 │
+┌─────────▼─────────┐             ┌─────────▼─────────┐
+│   Local Backend   │             │ Embedded Backend  │
+│  (Software-based) │             │ (Hardware-based)  │
+└─────────┬─────────┘             └─────────┬─────────┘
+          │                                 │
+┌─────────▼─────────┐             ┌─────────▼─────────┐
+│  Encryption Core  │             │   STM32H5 Device  │
+│  (AES-GCM impl.)  │             │ (HW acceleration) │
+└───────────────────┘             └───────────────────┘
+```
+
+### Key Management System
+
+CRUSTy implements a comprehensive key management system:
+
+1. **Key Generation**: Cryptographically secure random key generation
+2. **Key Storage**: Base64 encoding for human-readable storage
+3. **Key Splitting**: Shamir's Secret Sharing (t,n) threshold scheme
+   - Allows splitting keys into n shares where t shares are required for reconstruction
+   - Supports 2-of-3 configuration for standard use cases
+4. **Key Recovery**: Multiple recovery methods including mnemonic phrases and QR codes
+5. **Recipient-Specific Keys**: Email-based key derivation using HKDF
+
+### Backend Abstraction Layer
+
+The backend abstraction layer enables flexible encryption implementations:
+
+1. **Trait-Based Interface**: Common interface for all encryption backends
+2. **Local Backend**: Software-based implementation using Rust's cryptographic libraries
+3. **Embedded Backend**: Hardware-accelerated implementation for STM32H5 devices
+4. **Factory Pattern**: Dynamic backend selection based on configuration
+
+### Embedded System Integration
+
+CRUSTy features a modular backend architecture that supports offloading cryptographic operations to embedded hardware, specifically designed for STM32H5 series microcontrollers with hardware cryptographic acceleration.
+
+#### Components
+
+1. **Backend Abstraction Layer**
+
+   - Defines a common interface for all encryption backends
+   - Allows seamless switching between local and embedded processing
+   - Handles progress tracking and error management
+
+2. **Local Backend**
+
+   - Implements encryption/decryption using Rust's software libraries
+   - Provides fallback functionality when embedded hardware is unavailable
+   - Optimized for desktop CPU performance
+
+3. **Embedded Backend**
+
+   - Communicates with STM32H5 devices over USB, Serial, or Ethernet
+   - Offloads cryptographic operations to hardware accelerators
+   - Provides enhanced security through physical isolation
+
+4. **STM32H5 Firmware**
+   - Implements the CRUSTy protocol for secure communication
+   - Utilizes hardware cryptographic accelerators (AES, PKA, HASH)
+   - Provides secure key storage in isolated memory
+
+For detailed information on the embedded systems integration, see the [Embedded Systems Documentation](EMBEDDED_SYSTEMS.md).
+
+### Error Handling and Logging
+
+CRUSTy implements robust error handling:
+
+1. **Custom Error Types**: Domain-specific error types with detailed messages
+2. **Error Propagation**: Proper error propagation through the Result type
+3. **Secure Error Handling**: Prevents information leakage in error messages
+4. **Operation Logging**: Detailed logs of all encryption and decryption operations
+5. **File Cleanup**: Automatic removal of partially written files on error
 
 ## Quick Start
 
@@ -28,171 +161,6 @@ For detailed installation and usage instructions, please see the [Usage Guide](U
 - **Operation Logging**: Detailed logs of all encryption and decryption operations
 - **Error Handling**: Clear error messages and prevention of corrupted output files
 
-## Technical Architecture
-
-### Email-Based Key Derivation
-
-CRUSTy implements a secure method for recipient-specific encryption:
-
-1. The user provides a recipient's email address
-2. A cryptographic hash function (SHA-256) is used to derive material from the normalized email
-3. The HKDF (HMAC-based Key Derivation Function) combines this material with the master key
-4. The resulting derived key is used for encryption/decryption
-5. The recipient's email is stored in the encrypted file for reference during decryption
-
-This approach ensures that files can only be decrypted with both the master key and knowledge of the recipient's email address, adding an additional layer of security.
-
-### TODO: C/C++ Integration Architecture
-
-CRUSTy is designed with a modular architecture that will allow for integration with C/C++ front-ends in the future. This section outlines the planned architecture for such integration.
-
-#### Overview
-
-The integration will follow a layered architecture:
-
-```
-┌─────────────────────┐
-│  C/C++ Front-end    │
-│  (GUI or CLI)       │
-└─────────┬───────────┘
-          │
-          │ FFI Boundary
-          ▼
-┌─────────────────────┐
-│  CRUSTy C API       │ ← Shared library (.dll, .so, .dylib)
-│  (FFI Layer)        │
-└─────────┬───────────┘
-          │
-          │ Internal Rust API
-          ▼
-┌─────────────────────┐
-│  CRUSTy Core        │
-│  (Rust Engine)      │
-└─────────────────────┘
-```
-
-#### Components
-
-1. **CRUSTy Core (Rust Engine)**
-
-   - Contains all encryption/decryption logic
-   - Manages keys and cryptographic operations
-   - Handles file I/O and progress tracking
-   - Implements error handling and logging
-
-2. **CRUSTy C API (FFI Layer)**
-
-   - Exposes a C-compatible API using Rust's FFI capabilities
-   - Provides simple function calls for all core operations
-   - Handles memory management between Rust and C/C++
-   - Translates between Rust types and C-compatible types
-
-3. **C/C++ Front-end**
-   - Implements the user interface (GUI or CLI)
-   - Calls the CRUSTy C API functions
-   - Handles application-specific logic
-   - Can be implemented in any C/C++ framework
-
-#### Implementation Plan
-
-##### 1. Refactoring the Core Engine
-
-The current encryption/decryption functionality will be refactored into a standalone library with:
-
-- Clear separation between core logic and UI
-- Well-defined API boundaries
-- Proper error handling across language boundaries
-
-##### 2. Creating the FFI Layer
-
-A new module will be created to expose C-compatible functions:
-
-```rust
-// Example of the FFI interface (crusty_ffi.rs)
-#[no_mangle]
-pub extern "C" fn crusty_encrypt_file(
-    input_path: *const c_char,
-    output_path: *const c_char,
-    key_data: *const u8,
-    key_len: size_t,
-    progress_callback: extern "C" fn(f32) -> (),
-) -> i32 {
-    // Convert C types to Rust types
-    // Call the core encryption function
-    // Return status code
-}
-```
-
-##### 3. Building as a Shared Library
-
-The FFI layer will be compiled into a shared library:
-
-- Windows: `crusty_core.dll`
-- Linux: `libcrusty_core.so`
-- macOS: `libcrusty_core.dylib`
-
-##### 4. C/C++ Header File
-
-A C header file will be provided for C/C++ applications:
-
-```c
-// crusty.h
-#ifndef CRUSTY_H
-#define CRUSTY_H
-
-#include <stdint.h>
-#include <stddef.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// Error codes
-#define CRUSTY_SUCCESS 0
-#define CRUSTY_ERROR_INVALID_ARGS -1
-#define CRUSTY_ERROR_IO -2
-#define CRUSTY_ERROR_CRYPTO -3
-
-// Key management
-int crusty_generate_key(uint8_t* key_buffer, size_t buffer_size);
-int crusty_load_key_from_file(const char* path, uint8_t* key_buffer, size_t buffer_size);
-int crusty_save_key_to_file(const char* path, const uint8_t* key_data, size_t key_len);
-
-// File operations
-typedef void (*progress_callback_t)(float progress);
-
-int crusty_encrypt_file(const char* input_path, const char* output_path,
-                        const uint8_t* key_data, size_t key_len,
-                        progress_callback_t progress_callback);
-
-int crusty_decrypt_file(const char* input_path, const char* output_path,
-                        const uint8_t* key_data, size_t key_len,
-                        progress_callback_t progress_callback);
-
-// Batch operations
-int crusty_encrypt_files(const char** input_paths, size_t num_files,
-                         const char* output_dir, const uint8_t* key_data,
-                         size_t key_len, progress_callback_t progress_callback);
-
-int crusty_decrypt_files(const char** input_paths, size_t num_files,
-                         const char* output_dir, const uint8_t* key_data,
-                         size_t key_len, progress_callback_t progress_callback);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif // CRUSTY_H
-```
-
-#### Benefits of This Architecture
-
-1. **Language Flexibility**: Allows for front-ends in C, C++, or any language with C FFI support
-2. **Performance**: Maintains the performance benefits of Rust's core encryption engine
-3. **Security**: Core cryptographic operations remain in memory-safe Rust code
-4. **Modularity**: Clear separation of concerns between UI and encryption logic
-5. **Reusability**: The core engine can be used in multiple applications
-
 ## Security Considerations
 
 - CRUSTy uses AES-256-GCM, a secure authenticated encryption algorithm
@@ -200,15 +168,6 @@ int crusty_decrypt_files(const char** input_paths, size_t num_files,
 - Email-based key derivation uses HKDF with SHA-256 for secure key generation
 - The application has not been formally audited for security vulnerabilities
 - For highly sensitive data, consider using established encryption tools
-
-## Technical Details
-
-- Built with Rust for memory safety and performance
-- GUI implemented with egui framework
-- Uses the aes-gcm crate for encryption operations
-- Secure random key generation via the rand crate
-- HKDF implementation for email-based key derivation
-- Native file dialogs provided by rfd
 
 ## License
 
