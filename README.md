@@ -30,12 +30,13 @@ For detailed installation and usage instructions, please see the [Usage Guide](D
 
 ## Security Considerations
 
+- DO NOT use CRUSTy for critical file encryption. This is purely an educational proof-of-concept
 - CRUSTy uses AES-256-GCM, a secure authenticated encryption algorithm
 - Each file is encrypted with a unique nonce to prevent replay attacks
 - Email-based key derivation uses HKDF with SHA-256 for secure key generation
 - The application has not been formally audited for security vulnerabilities
 - For highly sensitive data, consider using established encryption tools
-- I do not advocate using CRUSTy for important usage because it is a learning project
+
 
 ## Rust and C/C++ Interfacing
 
