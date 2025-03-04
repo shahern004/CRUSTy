@@ -182,7 +182,19 @@ impl eframe::App for CrustyApp {
                 ui.heading(RichText::new("CRUSTy").color(self.theme.accent).size(24.0));
                 ui.add_space(20.0);
                 
-                if ui.add(Button::new(RichText::new("🔑 Keys").color(self.theme.button_text))
+                // Reordered buttons with Home first (only shown when not on Main screen)
+                if !matches!(self.state, AppState::Main) {
+                    if ui.add(Button::new(RichText::new("🏠 Home").color(self.theme.button_text))
+                        .fill(self.theme.button_normal)
+                        .rounding(Rounding::same(5.0))
+                    ).clicked() {
+                        self.state = AppState::Main;
+                        self.operation = FileOperation::None;
+                    }
+                }
+                
+                // Renamed from "Keys" to "Key Management"
+                if ui.add(Button::new(RichText::new("🔑 Key Management").color(self.theme.button_text))
                     .fill(self.theme.button_normal)
                     .rounding(Rounding::same(5.0))
                 ).clicked() {
@@ -202,34 +214,27 @@ impl eframe::App for CrustyApp {
                 ).clicked() {
                     self.state = AppState::About;
                 }
-                
-                if !matches!(self.state, AppState::Main) {
-                    if ui.add(Button::new(RichText::new("🏠 Home").color(self.theme.button_text))
-                        .fill(self.theme.button_normal)
-                        .rounding(Rounding::same(5.0))
-                    ).clicked() {
-                        self.state = AppState::Main;
-                        self.operation = FileOperation::None;
-                    }
-                }
             });
             
             ui.add_space(10.0);
             ui.separator();
             ui.add_space(10.0);
             
-            // Display appropriate screen based on state
-            match self.state {
-                AppState::Main => self.show_main_screen(ui),
-                AppState::Encrypting => self.show_encrypt_screen(ui),
-                AppState::Decrypting => self.show_decrypt_screen(ui),
-                AppState::KeyManagement => self.show_key_management(ui),
-                AppState::SplitKeyManagement => self.show_split_key_management(ui),
-                AppState::TransferPreparation => self.show_transfer_preparation(ui),
-                AppState::TransferReceive => self.show_transfer_receive(ui),
-                AppState::ViewLogs => self.show_logs(ui),
-                AppState::About => self.show_about(ui),
-            }
+            // Wrap all content in a ScrollArea to enable scrolling when content exceeds window height
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // Display appropriate screen based on state
+                match self.state {
+                    AppState::Main => self.show_main_screen(ui),
+                    AppState::Encrypting => self.show_encrypt_screen(ui),
+                    AppState::Decrypting => self.show_decrypt_screen(ui),
+                    AppState::KeyManagement => self.show_key_management(ui),
+                    AppState::SplitKeyManagement => self.show_split_key_management(ui),
+                    AppState::TransferPreparation => self.show_transfer_preparation(ui),
+                    AppState::TransferReceive => self.show_transfer_receive(ui),
+                    AppState::ViewLogs => self.show_logs(ui),
+                    AppState::About => self.show_about(ui),
+                }
+            });
             
             // Status bar at the bottom
             ui.add_space(10.0);
@@ -261,6 +266,38 @@ impl eframe::App for CrustyApp {
 }
 
 impl CrustyApp {
+    // Select files using native file dialog
+    pub fn select_files(&mut self) {
+        let fd = if matches!(self.operation, FileOperation::Decrypt) {
+            rfd::FileDialog::new().add_filter("Encrypted Files", &["encrypted"])
+        } else {
+            rfd::FileDialog::new().add_filter("All Files", &["*"])
+        };
+
+        let files = if self.batch_mode {
+            fd.set_title("Select Files").pick_files()
+        } else {
+            fd.set_title("Select a File").pick_file().map(|file| vec![file])
+        };
+
+        if let Some(files) = files {
+            if !files.is_empty() {
+                self.selected_files = files;
+                self.show_status(&format!("Selected {} files", self.selected_files.len()));
+            }
+        }
+    }
+    
+    // Select output directory using native file dialog
+    pub fn select_output_dir(&mut self) {
+        if let Some(dir) = rfd::FileDialog::new()
+            .set_title("Select Output Directory")
+            .pick_folder() {
+            self.output_dir = Some(dir);
+            self.show_status(&format!("Output directory set to: {}", self.output_dir.as_ref().unwrap().display()));
+        }
+    }
+    
     // Helper method to display error messages
     pub fn show_error(&mut self, message: &str) {
         self.error_message = message.to_string();
@@ -740,10 +777,7 @@ impl CrustyApp {
                 },
                 _ => {
                     ui.label("No encryption operation in progress");
-                    if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
-                        .fill(self.theme.button_normal)
-                        .rounding(Rounding::same(5.0))
-                    ).clicked() {
+                    if ui.button("Back").clicked() {
                         self.state = AppState::Main;
                     }
                 }
@@ -765,10 +799,7 @@ impl CrustyApp {
                 },
                 _ => {
                     ui.label("No decryption operation in progress");
-                    if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
-                        .fill(self.theme.button_normal)
-                        .rounding(Rounding::same(5.0))
-                    ).clicked() {
+                    if ui.button("Back").clicked() {
                         self.state = AppState::Main;
                     }
                 }
@@ -894,10 +925,10 @@ impl CrustyApp {
                             .fill(self.theme.button_normal)
                             .rounding(Rounding::same(8.0))
                     ).clicked() {
-                        if let Some(_key) = &self.current_key {
+                        if let Some(key) = &self.current_key {
                             self.save_key_to_file();
                         } else {
-                            self.show_error("No key selected");
+                            self.show_error("Please select a key first");
                         }
                     }
                 });
@@ -905,18 +936,14 @@ impl CrustyApp {
             
             ui.add_space(20.0);
             
-            // Advanced security section
+            // Split key management
             ui.group(|ui| {
-                ui.heading("Advanced Security");
-                
-                ui.label("CRUSTy offers advanced security features for key management and secure transfers.");
-                
-                ui.add_space(10.0);
+                ui.heading("Advanced Key Management");
                 
                 ui.horizontal(|ui| {
                     if ui.add_sized(
                         [220.0, 40.0],
-                        Button::new(RichText::new("Split-Key Management").color(self.theme.button_text))
+                        Button::new(RichText::new("Split Key Management").color(self.theme.button_text))
                             .fill(self.theme.button_normal)
                             .rounding(Rounding::same(8.0))
                     ).clicked() {
@@ -925,48 +952,79 @@ impl CrustyApp {
                     
                     if ui.add_sized(
                         [220.0, 40.0],
-                        Button::new(RichText::new("Prepare for Transfer").color(self.theme.button_text))
+                        Button::new(RichText::new("Transfer Preparation").color(self.theme.button_text))
                             .fill(self.theme.button_normal)
                             .rounding(Rounding::same(8.0))
                     ).clicked() {
                         self.state = AppState::TransferPreparation;
-                        self.transfer_state = TransferState::Initial;
                     }
                 });
                 
-                ui.add_space(5.0);
+                ui.add_space(10.0);
                 
-                ui.horizontal(|ui| {
-                    if ui.add_sized(
-                        [220.0, 40.0],
-                        Button::new(RichText::new("Receive Transfer").color(self.theme.button_text))
-                            .fill(self.theme.button_normal)
-                            .rounding(Rounding::same(8.0))
-                    ).clicked() {
-                        self.state = AppState::TransferReceive;
-                        self.transfer_receive_state = TransferReceiveState::Initial;
-                    }
-                });
+                if ui.add_sized(
+                    [220.0, 40.0],
+                    Button::new(RichText::new("Receive Transfer").color(self.theme.button_text))
+                        .fill(self.theme.button_normal)
+                        .rounding(Rounding::same(8.0))
+                ).clicked() {
+                    self.state = AppState::TransferReceive;
+                }
             });
         });
     }
     
-    // Show logs screen UI
+    // Split key management UI
+    fn show_split_key_management(&mut self, ui: &mut Ui) {
+        self.show_split_key_management_impl(ui);
+    }
+    
+    // Transfer preparation UI
+    fn show_transfer_preparation(&mut self, ui: &mut Ui) {
+        self.show_transfer_preparation_impl(ui);
+    }
+    
+    // Transfer receive UI
+    fn show_transfer_receive(&mut self, ui: &mut Ui) {
+        self.show_transfer_receive_impl(ui);
+    }
+    
+    // Logs screen UI
     fn show_logs(&mut self, ui: &mut Ui) {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
-            ui.heading("Application Logs");
-            ui.add_space(20.0);
-            
-            // Placeholder for logs
-            ui.label("Log functionality will be implemented in a future update.");
-            
+            ui.heading("Operation Logs");
             ui.add_space(10.0);
-            if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
-                .fill(self.theme.button_normal)
-                .rounding(Rounding::same(5.0))
-            ).clicked() {
-                self.state = AppState::Main;
+            
+            if let Some(logger) = get_logger() {
+                let entries = logger.get_entries();
+                
+                if entries.is_empty() {
+                    ui.label("No logs yet");
+                } else {
+                    egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                        for entry in entries {
+                            ui.group(|ui| {
+                                let color = if entry.success {
+                                    self.theme.success
+                                } else {
+                                    self.theme.error
+                                };
+                                
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(&entry.timestamp).color(self.theme.text_secondary));
+                                    ui.label(RichText::new(&entry.operation).strong().color(color));
+                                });
+                                
+                                ui.label(format!("File: {}", entry.file_path));
+                                ui.label(RichText::new(&entry.message).color(color));
+                            });
+                            ui.add_space(5.0);
+                        }
+                    });
+                }
+            } else {
+                ui.label(RichText::new("Logger not initialized").color(self.theme.error));
             }
         });
     }
@@ -974,167 +1032,225 @@ impl CrustyApp {
     // About screen UI
     fn show_about(&mut self, ui: &mut Ui) {
         ui.vertical_centered(|ui| {
-            ui.add_space(10.0);
-            ui.heading("About CRUSTy");
             ui.add_space(20.0);
+            ui.heading(RichText::new("About CRUSTy").size(24.0));
+            ui.add_space(10.0);
             
             ui.label("CRUSTy - Cryptographic Rust Utility");
-            ui.label("Version 1.0.0");
+            ui.label("Version 0.1.0");
             ui.add_space(10.0);
             
-            ui.label("A secure file encryption utility built with Rust.");
-            ui.label("Uses AES-256-GCM encryption for maximum security.");
-            
-            ui.add_space(10.0);
-            ui.label("Features:");
-            ui.label("• Single file and batch encryption/decryption");
-            ui.label("• Key management");
-            ui.label("• Recipient-specific encryption");
-            ui.label("• Embedded system integration");
-            
-            ui.add_space(10.0);
-            ui.label("Embedded System Support:");
-            ui.label("CRUSTy can offload cryptographic operations to an STM32H5 embedded device");
-            ui.label("using the C/C++ API. This allows for hardware-accelerated encryption and");
-            ui.label("decryption operations with enhanced security features.");
+            ui.label("A secure file encryption application using AES-256-GCM encryption.");
+            ui.label("Built with Rust and eframe for cross-platform compatibility.");
             
             ui.add_space(20.0);
-            if ui.add(Button::new(RichText::new("Back").color(self.theme.button_text))
-                .fill(self.theme.button_normal)
-                .rounding(Rounding::same(5.0))
-            ).clicked() {
-                self.state = AppState::Main;
-            }
+            ui.heading("Features");
+            ui.label("• AES-256-GCM authenticated encryption");
+            ui.label("• Single file and batch processing");
+            ui.label("• Key management with import/export");
+            ui.label("• Split-key encryption for enhanced security");
+            ui.label("• Secure transfer functionality");
+            ui.label("• Embedded system integration");
+            
+            ui.add_space(20.0);
+            ui.label(RichText::new("© 2025 CRUSTy Team").color(self.theme.text_secondary));
         });
     }
     
-    // File selection dialog
-    fn select_files(&mut self) {
-        // This would normally use a native file dialog
-        // For now, we'll just add a placeholder file
-        self.selected_files.push(PathBuf::from("example_file.txt"));
-        self.show_status("File(s) selected");
-    }
-    
-    // Output directory selection dialog
-    fn select_output_dir(&mut self) {
-        // This would normally use a native directory dialog
-        // For now, we'll just set a placeholder directory
-        self.output_dir = Some(PathBuf::from("output_directory"));
-        self.show_status("Output directory selected");
-    }
-    
-    // Load key from file
-    fn load_key_from_file(&mut self) {
-        // This would normally use a native file dialog
-        // For now, we'll just generate a new key
-        let key = EncryptionKey::generate();
-        let name = "Loaded Key".to_string();
-        self.saved_keys.push((name.clone(), key.clone()));
-        self.current_key = Some(key);
-        self.show_status(&format!("Key '{}' loaded", name));
-    }
-    
-    // Save key to file
-    fn save_key_to_file(&mut self) {
-        // This would normally use a native file dialog
-        // For now, we'll just show a status message
-        self.show_status("Key saved to file");
+    // Show operation progress UI
+    fn show_operation_progress(&mut self, ui: &mut Ui) {
+        let progress = {
+            let guard = self.progress.lock().unwrap();
+            guard.clone()
+        };
+        
+        if progress.is_empty() {
+            // Operation not started or complete
+            if !self.operation_results.is_empty() {
+                // Operation complete
+                ui.label(RichText::new("Operation Complete").color(self.theme.success));
+                ui.add_space(10.0);
+                
+                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    for result in &self.operation_results {
+                        let success = !result.contains("Failed");
+                        let color = if success {
+                            self.theme.success
+                        } else {
+                            self.theme.error
+                        };
+                        ui.label(RichText::new(result).color(color));
+                    }
+                });
+                
+                ui.add_space(10.0);
+                if ui.button("Back to Main").clicked() {
+                    self.state = AppState::Main;
+                    self.operation = FileOperation::None;
+                    self.operation_results.clear();
+                }
+            } else {
+                // Operation not started
+                ui.label("Operation starting...");
+            }
+        } else {
+            // Operation in progress
+            ui.label(format!("Processing {} files...", progress.len()));
+            
+            for (i, p) in progress.iter().enumerate() {
+                let file_name = if i < self.selected_files.len() {
+                    self.selected_files[i].file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| format!("File {}", i + 1))
+                } else {
+                    format!("File {}", i + 1)
+                };
+                
+                ui.label(format!("{}: {:.1}%", file_name, p * 100.0));
+                
+                // Progress bar
+                let progress_bar = egui::ProgressBar::new(*p)
+                    .show_percentage()
+                    .animate(true);
+                ui.add(progress_bar);
+            }
+        }
     }
     
     // Update operation results from shared results
     fn update_operation_results(&mut self) {
         let mut shared_results = self.shared_results.lock().unwrap();
         if !shared_results.is_empty() {
-            self.operation_results.append(&mut shared_results);
+            self.operation_results.extend(shared_results.drain(..));
         }
     }
     
-    // Show operation progress UI
-    fn show_operation_progress(&mut self, ui: &mut Ui) {
-        let progress_values = self.progress.lock().unwrap().clone();
-        
-        if progress_values.is_empty() {
-            // Operation completed
-            ui.heading("Operation Complete");
+    // Load key from file using native file dialog
+    fn load_key_from_file(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Load Key File")
+            .add_filter("Key Files", &["key"])
+            .pick_file() {
             
-            if !self.operation_results.is_empty() {
-                ui.add_space(10.0);
-                ui.group(|ui| {
-                    ui.heading("Results");
+            // Read the file content
+            let result = std::fs::read_to_string(&path).map_err(|e| {
+                format!("Failed to read key file: {}", e)
+            }).and_then(|content| {
+                // Parse the Base64 content to create a key
+                EncryptionKey::from_base64(&content.trim()).map_err(|e| {
+                    format!("Invalid key format: {}", e)
+                })
+            });
+            
+            match result {
+                Ok(key) => {
+                    // Generate a name for the key based on the file name
+                    let key_name = path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Imported Key")
+                        .to_string();
                     
-                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                        for result in &self.operation_results {
-                            let color = if result.contains("Successfully") {
-                                self.theme.success
-                            } else {
-                                self.theme.error
-                            };
-                            
-                            ui.label(RichText::new(result).color(color));
-                        }
-                    });
-                });
+                    // Check if a key with this name already exists
+                    let mut unique_name = key_name.clone();
+                    let mut counter = 1;
+                    
+                    while self.saved_keys.iter().any(|(name, _)| name == &unique_name) {
+                        unique_name = format!("{} ({})", key_name, counter);
+                        counter += 1;
+                    }
+                    
+                    // Add the key to our saved keys
+                    self.saved_keys.push((unique_name.clone(), key.clone()));
+                    
+                    // Set as current key
+                    self.current_key = Some(key);
+                    self.key_path = Some(path.clone());
+                    self.show_status(&format!("Key '{}' loaded from: {}", unique_name, path.display()));
+                    
+                    // Log successful key load
+                    if let Some(logger) = get_logger() {
+                        logger.log_success(
+                            "Load Key",
+                            &path.to_string_lossy(),
+                            "Key loaded successfully"
+                        ).ok();
+                    }
+                },
+                Err(e) => {
+                    self.show_error(&format!("Failed to load key: {}", e));
+                    
+                    // Log failed key load
+                    if let Some(logger) = get_logger() {
+                        logger.log_error(
+                            "Load Key",
+                            &path.to_string_lossy(),
+                            &e
+                        ).ok();
+                    }
+                }
             }
-            
-            ui.add_space(20.0);
-            if ui.add(Button::new(RichText::new("Back to Main").color(self.theme.button_text))
-                .fill(self.theme.button_normal)
-                .rounding(Rounding::same(5.0))
-            ).clicked() {
-                self.state = AppState::Main;
-                self.operation_results.clear();
-            }
-        } else {
-            // Operation in progress
-            ui.heading("Operation in Progress");
-            
-            for (i, progress) in progress_values.iter().enumerate() {
-                let file_name = if i < self.selected_files.len() {
-                    self.selected_files[i].file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string()
-                } else {
-                    format!("File {}", i + 1)
-                };
-                
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(&file_name);
-                        ui.add(egui::ProgressBar::new(*progress)
-                            .show_percentage()
-                            .animate(true)
-                        );
-                    });
-                });
-            }
-            
-            ui.add_space(10.0);
-            ui.label("Please wait while the operation completes...");
         }
     }
     
-    // Call the start_operation function from start_operation.rs
-    pub fn start_operation(&mut self) {
+    // Save key to file using native file dialog
+    fn save_key_to_file(&mut self) {
+        if let Some(key) = &self.current_key {
+            // Find the name of the current key
+            let key_name = self.saved_keys.iter()
+                .find_map(|(name, k)| {
+                    if k.to_base64() == key.to_base64() {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| "key".to_string());
+            
+            if let Some(path) = rfd::FileDialog::new()
+                .set_title("Save Key File")
+                .set_file_name(&format!("{}.key", key_name))
+                .add_filter("Key Files", &["key"])
+                .save_file() {
+                
+                // Convert the key to Base64 and write to file
+                let base64 = key.to_base64();
+                let result = std::fs::write(&path, base64).map_err(|e| {
+                    format!("Failed to write key file: {}", e)
+                });
+                
+                match result {
+                    Ok(_) => {
+                        self.key_path = Some(path.clone());
+                        self.show_status(&format!("Key '{}' saved to: {}", key_name, path.display()));
+                        
+                        // Log successful key save
+                        if let Some(logger) = get_logger() {
+                            logger.log_success(
+                                "Save Key",
+                                &path.to_string_lossy(),
+                                "Key saved successfully"
+                            ).ok();
+                        }
+                    },
+                    Err(e) => {
+                        self.show_error(&format!("Failed to save key: {}", e));
+                        
+                        // Log failed key save
+                        if let Some(logger) = get_logger() {
+                            logger.log_error(
+                                "Save Key",
+                                &path.to_string_lossy(),
+                                &e
+                            ).ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Start the selected operation
+    fn start_operation(&mut self) {
         crate::start_operation::start_operation(self);
-    }
-    
-    // Split key management screen UI
-    fn show_split_key_management(&mut self, ui: &mut Ui) {
-        // Use the SplitKeyGui trait method
-        crate::split_key_gui::SplitKeyGui::show_split_key_management(self, ui);
-    }
-    
-    // Transfer preparation screen UI
-    fn show_transfer_preparation(&mut self, ui: &mut Ui) {
-        // Use the TransferGui trait method
-        crate::transfer_gui::TransferGui::show_transfer_preparation(self, ui);
-    }
-    
-    // Transfer receive screen UI
-    fn show_transfer_receive(&mut self, ui: &mut Ui) {
-        // Use the TransferGui trait method
-        crate::transfer_gui::TransferGui::show_transfer_receive(self, ui);
     }
 }
