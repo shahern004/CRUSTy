@@ -8,13 +8,8 @@ use crate::gui::theme::AppTheme;
 use crate::gui::app_state::{AppState, EncryptionWorkflowStep};
 use crate::gui::file_list::{FileEntry, EnhancedFileList};
 use crate::start_operation::FileOperation;
-use crate::split_key::TransferPackage;
-use crate::transfer_gui::{TransferState, TransferReceiveState};
 use crate::logger::{Logger, get_logger};
 
-// These imports are needed for trait implementations
-// use crate::split_key_gui::SplitKeyGui;
-// use crate::transfer_gui::TransferGui;
 
 use crate::gui::screens::*;
 
@@ -44,10 +39,6 @@ pub struct CrustyApp {
     pub saved_keys: Vec<(String, EncryptionKey)>,
     pub new_key_name: String,
     
-    // Recipient options
-    pub use_recipient: bool,
-    pub recipient_email: String,
-    
     // Embedded backend options
     pub use_embedded_backend: bool,
     pub embedded_connection_type: crate::backend::ConnectionType,
@@ -57,12 +48,7 @@ pub struct CrustyApp {
     pub encryption_workflow_step: EncryptionWorkflowStep,
     pub encryption_workflow_complete: bool,
     
-    // Split key and transfer
-    pub transfer_package: Option<TransferPackage>,
-    pub transfer_state: TransferState,
-    pub transfer_receive_state: TransferReceiveState,
-    pub transfer_share1: String,
-    pub transfer_share2: String,
+    // Status tracking
     pub last_status: Option<String>,
     pub last_error: Option<String>,
     
@@ -107,9 +93,6 @@ impl Default for CrustyApp {
             saved_keys: Vec::new(),
             new_key_name: String::new(),
             
-            use_recipient: false,
-            recipient_email: String::new(),
-            
             use_embedded_backend: false,
             embedded_connection_type: crate::backend::ConnectionType::Usb,
             embedded_device_id: String::new(),
@@ -117,11 +100,6 @@ impl Default for CrustyApp {
             encryption_workflow_step: EncryptionWorkflowStep::Files,
             encryption_workflow_complete: false,
             
-            transfer_package: None,
-            transfer_state: TransferState::Initial,
-            transfer_receive_state: TransferReceiveState::Initial,
-            transfer_share1: String::new(),
-            transfer_share2: String::new(),
             last_status: None,
             last_error: None,
             
@@ -213,9 +191,6 @@ impl eframe::App for CrustyApp {
                 AppState::Encrypting => self.show_encrypt_screen(ui),
                 AppState::Decrypting => self.show_decrypt_screen(ui),
                 AppState::KeyManagement => self.show_key_management(ui),
-                AppState::SplitKeyManagement => self.show_split_key_management_impl(ui),
-                AppState::TransferPreparation => self.show_transfer_preparation_impl(ui),
-                AppState::TransferReceive => self.show_transfer_receive_impl(ui),
                 AppState::Logs => self.show_logs(ui),
                 AppState::About => self.show_about(ui),
             }

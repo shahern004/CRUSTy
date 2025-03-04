@@ -14,21 +14,6 @@ pub trait EncryptionBackend {
     /// Decrypts raw data using the provided key.
     fn decrypt_data(&self, data: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, EncryptionError>;
     
-    /// Encrypts raw data for a specific recipient using their email.
-    fn encrypt_data_for_recipient(
-        &self, 
-        data: &[u8], 
-        master_key: &EncryptionKey, 
-        recipient_email: &str
-    ) -> Result<Vec<u8>, EncryptionError>;
-    
-    /// Decrypts raw data that was encrypted for a specific recipient.
-    fn decrypt_data_with_recipient(
-        &self, 
-        data: &[u8], 
-        master_key: &EncryptionKey
-    ) -> Result<(String, Vec<u8>), EncryptionError>;
-    
     /// Encrypts a file using the provided key.
     fn encrypt_file(
         &self,
@@ -47,25 +32,6 @@ pub trait EncryptionBackend {
         progress_callback: impl Fn(f32) + Send + 'static,
     ) -> Result<(), EncryptionError>;
     
-    /// Encrypts a file for a specific recipient using their email.
-    fn encrypt_file_for_recipient(
-        &self,
-        source_path: &Path,
-        dest_path: &Path,
-        master_key: &EncryptionKey,
-        recipient_email: &str,
-        progress_callback: impl Fn(f32) + Send + 'static,
-    ) -> Result<(), EncryptionError>;
-    
-    /// Decrypts a file that was encrypted for a specific recipient.
-    fn decrypt_file_with_recipient(
-        &self,
-        source_path: &Path,
-        dest_path: &Path,
-        master_key: &EncryptionKey,
-        progress_callback: impl Fn(f32) + Send + 'static,
-    ) -> Result<(String, ()), EncryptionError>;
-    
     /// Encrypts multiple files using the provided key.
     fn encrypt_files(
         &self,
@@ -81,16 +47,6 @@ pub trait EncryptionBackend {
         source_paths: &[&Path],
         dest_dir: &Path,
         key: &EncryptionKey,
-        progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
-    ) -> Result<Vec<String>, EncryptionError>;
-    
-    /// Encrypts multiple files for a specific recipient.
-    fn encrypt_files_for_recipient(
-        &self,
-        source_paths: &[&Path],
-        dest_dir: &Path,
-        master_key: &EncryptionKey,
-        recipient_email: &str,
         progress_callback: impl Fn(usize, f32) + Clone + Send + 'static,
     ) -> Result<Vec<String>, EncryptionError>;
 }
@@ -153,31 +109,6 @@ impl Backend {
         }
     }
     
-    /// Encrypts raw data for a specific recipient using their email.
-    pub fn encrypt_data_for_recipient(
-        &self, 
-        data: &[u8], 
-        master_key: &EncryptionKey, 
-        recipient_email: &str
-    ) -> Result<Vec<u8>, EncryptionError> {
-        match self {
-            Backend::Local(backend) => backend.encrypt_data_for_recipient(data, master_key, recipient_email),
-            Backend::Embedded(backend) => backend.encrypt_data_for_recipient(data, master_key, recipient_email),
-        }
-    }
-    
-    /// Decrypts raw data that was encrypted for a specific recipient.
-    pub fn decrypt_data_with_recipient(
-        &self, 
-        data: &[u8], 
-        master_key: &EncryptionKey
-    ) -> Result<(String, Vec<u8>), EncryptionError> {
-        match self {
-            Backend::Local(backend) => backend.decrypt_data_with_recipient(data, master_key),
-            Backend::Embedded(backend) => backend.decrypt_data_with_recipient(data, master_key),
-        }
-    }
-    
     /// Encrypts a file using the provided key.
     pub fn encrypt_file<F>(
         &self,
@@ -209,49 +140,6 @@ impl Backend {
         match self {
             Backend::Local(backend) => backend.decrypt_file(source_path, dest_path, key, progress_callback),
             Backend::Embedded(backend) => backend.decrypt_file(source_path, dest_path, key, progress_callback),
-        }
-    }
-    
-    /// Encrypts a file for a specific recipient using their email.
-    pub fn encrypt_file_for_recipient<F>(
-        &self,
-        source_path: &Path,
-        dest_path: &Path,
-        master_key: &EncryptionKey,
-        recipient_email: &str,
-        progress_callback: F,
-    ) -> Result<(), EncryptionError>
-    where
-        F: Fn(f32) + Send + 'static,
-    {
-        match self {
-            Backend::Local(backend) => backend.encrypt_file_for_recipient(
-                source_path, dest_path, master_key, recipient_email, progress_callback
-            ),
-            Backend::Embedded(backend) => backend.encrypt_file_for_recipient(
-                source_path, dest_path, master_key, recipient_email, progress_callback
-            ),
-        }
-    }
-    
-    /// Decrypts a file that was encrypted for a specific recipient.
-    pub fn decrypt_file_with_recipient<F>(
-        &self,
-        source_path: &Path,
-        dest_path: &Path,
-        master_key: &EncryptionKey,
-        progress_callback: F,
-    ) -> Result<(String, ()), EncryptionError>
-    where
-        F: Fn(f32) + Send + 'static,
-    {
-        match self {
-            Backend::Local(backend) => backend.decrypt_file_with_recipient(
-                source_path, dest_path, master_key, progress_callback
-            ),
-            Backend::Embedded(backend) => backend.decrypt_file_with_recipient(
-                source_path, dest_path, master_key, progress_callback
-            ),
         }
     }
     
@@ -293,28 +181,6 @@ impl Backend {
             ),
             Backend::Embedded(backend) => backend.decrypt_files(
                 source_paths, dest_dir, key, progress_callback
-            ),
-        }
-    }
-    
-    /// Encrypts multiple files for a specific recipient.
-    pub fn encrypt_files_for_recipient<F>(
-        &self,
-        source_paths: &[&Path],
-        dest_dir: &Path,
-        master_key: &EncryptionKey,
-        recipient_email: &str,
-        progress_callback: F,
-    ) -> Result<Vec<String>, EncryptionError>
-    where
-        F: Fn(usize, f32) + Clone + Send + 'static,
-    {
-        match self {
-            Backend::Local(backend) => backend.encrypt_files_for_recipient(
-                source_paths, dest_dir, master_key, recipient_email, progress_callback
-            ),
-            Backend::Embedded(backend) => backend.encrypt_files_for_recipient(
-                source_paths, dest_dir, master_key, recipient_email, progress_callback
             ),
         }
     }

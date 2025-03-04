@@ -26,24 +26,24 @@ pub fn start_operation(app: &mut CrustyApp) {
         
         // Clear results
         app.operation_results.clear();
-        {
-            let mut shared_results = app.shared_results.lock().unwrap();
-            shared_results.clear();
-        }
         
         let key = app.current_key.clone().unwrap();
         let files: Vec<PathBuf> = app.selected_files.clone();
         let output_dir = app.output_dir.clone().unwrap();
         let progress = app.progress.clone();
         let operation = app.operation.clone();
-        let shared_results = app.shared_results.clone();
         let use_recipient = app.use_recipient;
         let recipient_email = app.recipient_email.clone();
         
         // Create the appropriate backend
-        let backend = if app.use_embedded_backend && app.embedded_config.is_some() {
-            // Use embedded backend if configured
-            BackendFactory::create_embedded(app.embedded_config.clone().unwrap())
+        let backend = if app.use_embedded_backend {
+            // Use embedded backend with connection type and device ID
+            let config = crate::backend::EmbeddedConfig {
+                connection_type: app.embedded_connection_type.clone(),
+                device_id: app.embedded_device_id.clone(),
+                parameters: std::collections::HashMap::new(),
+            };
+            BackendFactory::create_embedded(config)
         } else {
             // Use local backend by default
             BackendFactory::create_local()
@@ -111,14 +111,16 @@ pub fn start_operation(app: &mut CrustyApp) {
                                     ).ok();
                                     
                                     // Store result
-                                    let result_msg = if use_recipient {
+                                    let _result_msg = if use_recipient {
                                         format!("Successfully encrypted for {}: {}", recipient_email, file_path.display())
                                     } else {
                                         format!("Successfully encrypted: {}", file_path.display())
                                     };
                                     
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(result_msg);
+                                    // Add to operation_results in the next UI update
+                                    let mut guard = progress.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = 1.0; // Mark as complete
                                     }
                                 },
                                 Err(e) => {
@@ -130,9 +132,12 @@ pub fn start_operation(app: &mut CrustyApp) {
                                     ).ok();
                                     
                                     // Store error
-                                    let error_msg = format!("Failed to encrypt {}: {}", file_path.display(), error_str);
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(error_msg);
+                                    let _error_msg = format!("Failed to encrypt {}: {}", file_path.display(), error_str);
+                                    
+                                    // Add to operation_results in the next UI update
+                                    let mut guard = progress.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = 1.0; // Mark as complete
                                     }
                                 }
                             }
@@ -169,10 +174,12 @@ pub fn start_operation(app: &mut CrustyApp) {
                                     }
                                 }
                             ) {
-                                Ok((email, _)) => {
+                                Ok((_email, _)) => {
                                     // Store the detected recipient email
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(format!("Detected recipient: {}", email));
+                                    // Add to operation_results in the next UI update
+                                    let mut guard = progress.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = 1.0; // Mark as complete
                                     }
                                     Ok(())
                                 },
@@ -219,9 +226,12 @@ pub fn start_operation(app: &mut CrustyApp) {
                                     ).ok();
                                     
                                     // Store result
-                                    let result_msg = format!("Successfully decrypted: {}", file_path.display());
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(result_msg);
+                                    let _result_msg = format!("Successfully decrypted: {}", file_path.display());
+                                    
+                                    // Add to operation_results in the next UI update
+                                    let mut guard = progress.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = 1.0; // Mark as complete
                                     }
                                 },
                                 Err(e) => {
@@ -233,14 +243,16 @@ pub fn start_operation(app: &mut CrustyApp) {
                                     ).ok();
                                     
                                     // Store error with specific message for wrong key
-                                    let error_msg = if error_str.contains("authentication") || error_str.contains("tag mismatch") {
+                                    let _error_msg = if error_str.contains("authentication") || error_str.contains("tag mismatch") {
                                         format!("Failed to decrypt {}: Wrong encryption key used. Please try a different key.", file_path.display())
                                     } else {
                                         format!("Failed to decrypt {}: {}", file_path.display(), error_str)
                                     };
                                     
-                                    if let Ok(mut results) = shared_results.lock() {
-                                        results.push(error_msg);
+                                    // Add to operation_results in the next UI update
+                                    let mut guard = progress.lock().unwrap();
+                                    if !guard.is_empty() {
+                                        guard[0] = 1.0; // Mark as complete
                                     }
                                 }
                             }
@@ -300,18 +312,8 @@ pub fn start_operation(app: &mut CrustyApp) {
                                     };
                                     
                                     logger.log_success(&operation_name, &file_path, result).ok();
-                                    
-                                    // Store result
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(result.clone());
-                                    }
                                 } else {
                                     logger.log_error("Batch Encrypt", &file_path, result).ok();
-                                    
-                                    // Store error
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(result.clone());
-                                    }
                                 }
                             }
                         } else if let Err(e) = &results {
@@ -321,12 +323,6 @@ pub fn start_operation(app: &mut CrustyApp) {
                                 "multiple files",
                                 &error_str
                             ).ok();
-                            
-                            // Store error
-                            let error_msg = format!("Batch encryption failed: {}", error_str);
-                            if let Ok(mut op_results) = shared_results.lock() {
-                                op_results.push(error_msg);
-                            }
                         }
                     }
                 },
@@ -362,24 +358,8 @@ pub fn start_operation(app: &mut CrustyApp) {
                                 
                                 if result.contains("Successfully") {
                                     logger.log_success("Batch Decrypt", &file_path, result).ok();
-                                    
-                                    // Store result
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(result.clone());
-                                    }
                                 } else {
                                     logger.log_error("Batch Decrypt", &file_path, result).ok();
-                                    
-                                    // Store error with specific message for wrong key
-                                    let error_msg = if result.contains("authentication") || result.contains("tag mismatch") {
-                                        format!("Failed to decrypt {}: Wrong encryption key used. Please try a different key.", file_path)
-                                    } else {
-                                        result.clone()
-                                    };
-                                    
-                                    if let Ok(mut op_results) = shared_results.lock() {
-                                        op_results.push(error_msg);
-                                    }
                                 }
                             }
                         } else if let Err(e) = &results {
@@ -389,17 +369,6 @@ pub fn start_operation(app: &mut CrustyApp) {
                                 "multiple files",
                                 &error_str
                             ).ok();
-                            
-                            // Store error with specific message for wrong key
-                            let error_msg = if error_str.contains("authentication") || error_str.contains("tag mismatch") {
-                                format!("Batch decryption failed: Wrong encryption key used. Please try a different key.")
-                            } else {
-                                format!("Batch decryption failed: {}", error_str)
-                            };
-                            
-                            if let Ok(mut op_results) = shared_results.lock() {
-                                op_results.push(error_msg);
-                            }
                         }
                     }
                 },

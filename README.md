@@ -19,11 +19,6 @@ For detailed installation and usage instructions, please see the [Usage Guide](D
   - Generate new encryption keys
   - Save keys to files for later use
   - Load keys from files
-  - Manage multiple keys
-- **Recipient-Specific Encryption**:
-  - Encrypt files for specific recipients using their email address
-  - Derive unique encryption keys from recipient emails
-  - Automatically detect recipient information during decryption
 - **Progress Tracking**: Real-time progress indicators for encryption/decryption operations
 - **Operation Logging**: Detailed logs of all encryption and decryption operations
 - **Error Handling**: Clear error messages and prevention of corrupted output files
@@ -33,7 +28,6 @@ For detailed installation and usage instructions, please see the [Usage Guide](D
 - DO NOT use CRUSTy for critical file encryption. This is purely an educational proof-of-concept
 - CRUSTy uses AES-256-GCM, a secure authenticated encryption algorithm
 - Each file is encrypted with a unique nonce to prevent replay attacks
-- Email-based key derivation uses HKDF with SHA-256 for secure key generation
 - The application has not been formally audited for security vulnerabilities
 - For highly sensitive data, consider using established encryption tools
 

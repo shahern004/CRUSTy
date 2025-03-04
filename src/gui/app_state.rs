@@ -7,9 +7,6 @@ pub enum AppState {
     Encrypting,
     Decrypting,
     KeyManagement,
-    SplitKeyManagement,
-    TransferPreparation,
-    TransferReceive,
     Logs,
     About,
 }

@@ -129,17 +129,6 @@ impl EncryptScreen for CrustyApp {
                     }
                 });
                 
-                // Recipient options
-                ui.add_space(5.0);
-                ui.checkbox(&mut self.use_recipient, "Encrypt for specific recipient");
-                
-                if self.use_recipient {
-                    ui.horizontal(|ui| {
-                        ui.label("Recipient Email:");
-                        ui.text_edit_singleline(&mut self.recipient_email);
-                    });
-                }
-                
                 // Backend options
                 ui.add_space(5.0);
                 ui.checkbox(&mut self.use_embedded_backend, "Use hardware encryption");
