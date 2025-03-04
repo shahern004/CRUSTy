@@ -1,15 +1,23 @@
 # CRUSTy - Usage Guide
 
-**Version: 1.0.0**  
-**Last Updated: 2025-03-03**
+**Version: 1.1.0**  
+**Last Updated: 2025-03-04**
 
 ## Changelog
+
+### v1.1.0 (2025-03-04)
+
+- Updated documentation to reflect current UI structure
+- Clarified embedded system integration status (marked as under development)
+- Added information about workflow steps and screens
+- Added details about Logs Screen and About Screen
+- Updated table of contents to include new sections
+- Updated troubleshooting section with additional error cases
 
 ### v1.0.0 (2025-03-03)
 
 - Initial documented version
 - Added comprehensive usage instructions
-- Added details on recipient-specific encryption
 - Added embedded system integration usage
 - Added workflow and troubleshooting diagrams
 
@@ -22,12 +30,17 @@ This document provides detailed instructions for installing and using the CRUSTy
 - [Installation](#installation)
   - [Pre-built Binaries](#pre-built-binaries)
   - [Building from Source](#building-from-source)
+- [Application Interface](#application-interface)
+  - [Dashboard](#dashboard)
+  - [Logs Screen](#logs-screen)
+  - [About Screen](#about-screen)
+  - [Main Screen](#main-screen)
+  - [Encryption Workflow](#encryption-workflow)
 - [Basic Usage](#basic-usage)
   - [Encrypting Files](#encrypting-files)
   - [Decrypting Files](#decrypting-files)
   - [Managing Keys](#managing-keys)
 - [Advanced Features](#advanced-features)
-  - [Recipient-Specific Encryption](#recipient-specific-encryption)
   - [Embedded System Integration](#embedded-system-integration)
   - [Batch Processing](#batch-processing)
 - [Troubleshooting](#troubleshooting)
@@ -64,6 +77,68 @@ Download the latest release for your platform from the [Releases](https://github
    cargo run --release
    ```
 
+## Application Interface
+
+CRUSTy features a tabbed interface with several screens:
+
+### Dashboard
+
+The Dashboard is the starting point of the application, providing quick access to all main functions:
+
+- Encrypt Files
+- Decrypt Files
+- Key Management
+- View Logs
+- About
+
+### Logs Screen
+
+The Logs Screen provides access to the application's operation logs:
+
+- View recent encryption and decryption operations
+- See detailed information about each operation
+- Refresh logs to see the latest entries
+- Clear logs when they're no longer needed
+- Open the log directory in your file explorer
+
+### About Screen
+
+The About Screen provides information about the application:
+
+- Version information
+- Feature list
+- Technical details
+- License information
+
+### Main Screen
+
+The Main Screen provides access to recent files and secured folders:
+
+- **Recent Files Tab**: Shows recently encrypted or decrypted files
+- **Secured Folders Tab**: Shows folders designated for secure operations (coming soon)
+
+The Main Screen also includes:
+- Processing mode selection (Single File or Multiple Files)
+- Output directory selection
+- File selection and display
+- Key management options
+
+### Encryption Workflow
+
+The encryption workflow follows a step-by-step process:
+
+```mermaid
+flowchart LR
+    A[Files] --> B[Keys]
+    B --> C[Options]
+    C --> D[Execute]
+```
+
+1. **Files**: Select the files to encrypt or decrypt and choose an output directory
+2. **Keys**: Choose an existing encryption key or create a new one
+3. **Options**: Configure encryption settings including backend selection (software or hardware encryption)
+4. **Execute**: Review the encryption summary and start the operation
+
 ## Basic Usage
 
 **User Workflow**
@@ -77,11 +152,7 @@ flowchart TD
     D --> F[Select Output Directory]
     E --> G[Select/Create Key]
     F --> H[Select Key]
-    G --> I{Recipient-Specific?}
-    I -->|Yes| J[Enter Email]
-    I -->|No| K[Standard Encryption]
-    J --> L[Click Encrypt]
-    K --> L
+    G --> L[Click Encrypt]
     H --> M[Click Decrypt]
     L --> N[View Results]
     M --> N
@@ -89,19 +160,25 @@ flowchart TD
 
 ### Encrypting Files
 
-1. Select "Single File" or "Multiple Files" mode
-2. Click "Select File(s)" to choose the file(s) you want to encrypt
-3. Select an output directory
-4. Create a new encryption key or select an existing one
-5. Click "Encrypt"
+1. From the Dashboard, select "Encrypt Files"
+2. Choose "Single File" or "Multiple Files" mode
+3. Click "Select File(s)" to choose the file(s) you want to encrypt
+4. Select an output directory
+5. Create a new encryption key or select an existing one
+6. Optionally enable hardware encryption (if available)
+7. Click "Encrypt"
+8. Monitor the progress and view results
 
 ### Decrypting Files
 
-1. Select "Single File" or "Multiple Files" mode
-2. Click "Select File(s)" to choose the encrypted file(s)
-3. Select an output directory
-4. Select the encryption key that was used to encrypt the file(s)
-5. Click "Decrypt"
+1. From the Dashboard, select "Decrypt Files"
+2. Choose "Single File" or "Multiple Files" mode
+3. Click "Select File(s)" to choose the encrypted file(s)
+4. Select an output directory
+5. Select the encryption key that was used to encrypt the file(s)
+6. Optionally enable hardware encryption (if available)
+7. Click "Decrypt"
+8. Monitor the progress and view results
 
 ### Managing Keys
 
@@ -112,15 +189,9 @@ flowchart TD
     A[Open Key Management] --> B{Choose Action}
     B -->|Create| C[Generate New Key]
     B -->|Import| D[Load Key from File]
-    B -->|Split| E[Split Key into Shares]
     C --> F[Name and Save Key]
     D --> F
-    E --> G[Set Threshold and Shares]
-    G --> H[Store Primary Share]
-    H --> I[Save Secondary Share]
-    I --> J[Create Recovery Share]
     F --> K[Use Key for Operations]
-    J --> K
 ```
 
 1. Navigate to the "Keys" section by clicking the "🔑 Keys" button
@@ -132,59 +203,32 @@ flowchart TD
 
 ## Advanced Features
 
-### Recipient-Specific Encryption
-
-CRUSTy allows you to encrypt files specifically for a recipient using their email address:
-
-1. In the main screen, check the "Use recipient-specific encryption" box
-2. Enter the recipient's email address
-3. Select or create a master encryption key
-4. Proceed with encryption as normal
-
-When a file is encrypted for a specific recipient:
-
-- The recipient's email is used to derive a unique encryption key
-- The file can only be decrypted using both the master key and knowledge of the recipient's email
-- The recipient information is stored within the encrypted file
-
-To decrypt a recipient-specific file:
-
-1. Load the master key that was used for encryption
-2. CRUSTy will automatically detect if the file was encrypted for a specific recipient
-3. The recipient's email will be displayed in the results after successful decryption
-
 ### Embedded System Integration
 
-CRUSTy supports offloading cryptographic operations to an STM32H5 embedded device for enhanced performance and security:
+> **Note:** The embedded system integration is currently under development. While the UI elements are present, the backend functionality is not yet fully implemented.
 
-1. Connect your STM32H573I-DK or compatible device to your computer
-2. In the main screen, check the "Use embedded system for cryptographic operations" box
-3. Select the appropriate connection type (USB, Serial, or Ethernet)
-4. Enter the device ID or address
-5. Add any required connection parameters in the "Advanced Connection Parameters" section
-6. Click "Apply Configuration"
+CRUSTy is designed to support offloading cryptographic operations to an STM32H5 embedded device for enhanced performance and security:
 
-Once configured, all encryption and decryption operations will be performed on the embedded device instead of your computer.
+1. In the encryption or decryption screen, check the "Use hardware encryption" checkbox
+2. Select the appropriate connection type (currently USB or Serial)
+3. When fully implemented, this feature will allow:
+   - Hardware-accelerated encryption operations
+   - Enhanced security through physical isolation
+   - Improved performance for large files
+
+For technical details about the embedded system integration, see the [Rust FFI to Embedded System Integration](RUST_FFI_EMBEDDED.md) documentation.
 
 #### Connection Types
 
-- **USB**: Use for direct connection to the STM32H5 device. Enter the device ID (e.g., `VID:PID` format).
-- **Serial/UART**: Use for serial connection. Enter the port name (e.g., `COM3` on Windows, `/dev/ttyUSB0` on Linux).
-- **Ethernet**: Use for network connection. Enter the IP address and port (e.g., `192.168.1.100:8080`).
+- **USB**: For direct connection to the STM32H5 device
+- **Serial**: For serial/UART connection to the device
 
-#### Advanced Parameters
+#### Benefits (When Fully Implemented)
 
-Depending on your connection type, you may need to specify additional parameters:
+- **Performance**: Hardware-accelerated encryption will be faster for large files
+- **Security**: Cryptographic operations will be isolated from the main system
+- **Power Efficiency**: Will reduce CPU load on your computer
 
-- For Serial: `baud_rate`, `data_bits`, `parity`, `stop_bits`
-- For USB: `interface`, `endpoint`
-- For Ethernet: `timeout`, `keep_alive`
-
-#### Benefits
-
-- **Performance**: Hardware-accelerated encryption is faster for large files
-- **Security**: Cryptographic operations are isolated from the main system
-- **Power Efficiency**: Reduces CPU load on your computer
 
 ### Batch Processing
 
@@ -197,32 +241,6 @@ For encrypting or decrypting multiple files at once:
 5. Click "Encrypt" or "Decrypt"
 
 Progress for each file will be displayed during the operation.
-
-## Split Key Functionality
-
-CRUSTy supports splitting encryption keys into multiple shares using Shamir's Secret Sharing, enhancing security through multi-party authorization:
-
-1. **Creating Split Keys**:
-
-   - In the key management section, select a key to split
-   - Choose the threshold (minimum shares needed for reconstruction)
-   - Choose the total number of shares to create
-   - Click "Split Key"
-
-2. **Storing Shares**:
-
-   - The primary share is automatically stored in your system's secure credential store
-   - Save the secondary share to a file on a different device or storage medium
-   - Create a recovery share as a mnemonic phrase or QR code for emergency backup
-
-3. **Reconstructing Keys**:
-   - To reconstruct a key, you need at least the threshold number of shares
-   - The primary share is retrieved from the credential store
-   - Load the secondary share from its file
-   - If needed, input the recovery share from the mnemonic phrase or QR code
-   - The key is reconstructed only if the correct shares are provided
-
-This approach enhances security by ensuring that no single point of compromise can expose the encryption key.
 
 ## Troubleshooting
 
@@ -252,7 +270,6 @@ flowchart TD
 **Error: "Authentication failed: The encryption key is incorrect or the file is corrupted"**
 
 - Make sure you're using the same key that was used to encrypt the file
-- If using recipient-specific encryption, ensure the correct master key is loaded
 
 **Error: "Failed to decrypt: Wrong encryption key used"**
 
@@ -261,9 +278,9 @@ flowchart TD
 
 **Error: "Embedded backend not implemented"**
 
-- This error occurs when trying to use the embedded backend before it's properly configured
-- Make sure you've clicked "Apply Configuration" after entering the device details
-- Check that your device is properly connected and powered on
+- This error occurs when trying to use the embedded backend which is still under development
+- The embedded system integration is not yet fully implemented
+- Use the standard software encryption instead
 
 **Error: "Failed to connect to embedded device"**
 
@@ -279,9 +296,20 @@ flowchart TD
 - Ensure the device has stable power
 - Try reducing the file size if the operation involves large files
 
+**Error: "No key selected"**
+
+- You must select an encryption key before encrypting or decrypting files
+- Go to the Key Management screen to create or select a key
+
+**Error: "No output directory selected"**
+
+- You must select an output directory before encrypting or decrypting files
+- Click "Select Output Directory" to choose a directory
+
 ### Getting Help
 
 If you encounter issues not covered here, please:
 
 1. Check the [GitHub Issues](https://github.com/shahern004/CRUSTy/issues) for similar problems
 2. Open a new issue with details about your problem
+3. View the application logs by clicking "Help" > "View Logs" in the menu bar
